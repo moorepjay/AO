@@ -78,6 +78,12 @@ class ItemListTests(unittest.TestCase):
         self.assertEqual(len(items), 2 * len(afs.BUILTIN_GEAR))
         self.assertTrue(all(afs.GEAR_PATTERN.match(i) for i in items))
 
+    def test_builtin_name(self):
+        self.assertEqual(afs.builtin_name("T6_ARMOR_CLOTH_SET2"), "Master's Cleric Robe")
+        self.assertEqual(afs.builtin_name("T5_HEAD_LEATHER_MORGANA"), "Expert's Stalker Hood")
+        self.assertEqual(afs.builtin_name("T8_MAIN_SWORD@3"), "Elder's Broadsword .3")
+        self.assertIsNone(afs.builtin_name("T4_WOOD"))
+
     def test_read_items_file(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "items.txt")
@@ -280,7 +286,7 @@ class OutputTests(unittest.TestCase):
             "how": "instant", "buy": 1000, "sell": 2000, "profit": 840,
             "roi": 84.0, "data_age_h": 1.0, "risk": "MED",
         }, cfg(), {})
-        for names, want in (({"T4_BAG": "Adept's Bag"}, "T4 Adept's Bag"),
+        for names, want in (({"T4_BAG": "Adept's Bag"}, "Adept's Bag "),
                             ({}, "T4_BAG ")):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):

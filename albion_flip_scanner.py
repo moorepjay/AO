@@ -59,61 +59,97 @@ MAX_URL = 3800  # API cap is 4096 chars; keep headroom
 CACHE_FILE = os.path.join(os.path.expanduser("~"), ".cache",
                           "albion-flip-scanner", "items.txt")
 
-# Fallback gear list (ids without the "T<n>_" prefix), used when items.txt
-# can't be downloaded and there's no cached copy. Ids that don't exist for a
-# tier just come back with no prices.
-_ARMOR = [f"{slot}_{kind}_{fam}" for slot in ("HEAD", "ARMOR", "SHOES")
-          for kind in ("PLATE", "LEATHER", "CLOTH")
-          for fam in ("SET1", "SET2", "SET3", "UNDEAD", "HELL", "KEEPER")]
-BUILTIN_GEAR = [
+# Fallback gear list with English names, used when items.txt can't be
+# downloaded and there's no cached copy. Keys are ids without the "T<n>_"
+# prefix; the tier word ("Adept's", "Expert's", ...) is added per tier.
+TIER_WORDS = {1: "Beginner's", 2: "Novice's", 3: "Journeyman's", 4: "Adept's",
+              5: "Expert's", 6: "Master's", 7: "Grandmaster's", 8: "Elder's"}
+_ARMOR_SETS = {
+    "PLATE": ({"SET1": "Soldier", "SET2": "Knight", "SET3": "Guardian",
+               "UNDEAD": "Graveguard", "HELL": "Demon", "KEEPER": "Judicator"},
+              ("Helmet", "Armor", "Boots")),
+    "LEATHER": ({"SET1": "Mercenary", "SET2": "Hunter", "SET3": "Assassin",
+                 "UNDEAD": "Specter", "HELL": "Hellion", "MORGANA": "Stalker"},
+                ("Hood", "Jacket", "Shoes")),
+    "CLOTH": ({"SET1": "Scholar", "SET2": "Cleric", "SET3": "Mage",
+               "UNDEAD": "Cultist", "HELL": "Fiend", "KEEPER": "Druid"},
+              ("Cowl", "Robe", "Sandals")),
+}
+BUILTIN_NAMES = {
     # swords, axes, maces, hammers
-    "MAIN_SWORD", "2H_CLAYMORE", "2H_DUALSWORD", "MAIN_SCIMITAR_MORGANA",
-    "2H_CLEAVER_HELL", "2H_DUALSCIMITAR_UNDEAD",
-    "MAIN_AXE", "2H_AXE", "2H_HALBERD", "2H_HALBERD_MORGANA",
-    "2H_SCYTHE_HELL", "2H_DUALAXE_KEEPER",
-    "MAIN_MACE", "2H_MACE", "2H_FLAIL", "MAIN_ROCKMACE_KEEPER",
-    "MAIN_MACE_HELL", "2H_MACE_MORGANA",
-    "MAIN_HAMMER", "2H_POLEHAMMER", "2H_HAMMER", "2H_HAMMER_UNDEAD",
-    "2H_DUALHAMMER_HELL", "2H_RAM_KEEPER",
+    "MAIN_SWORD": "Broadsword", "2H_CLAYMORE": "Claymore",
+    "2H_DUALSWORD": "Dual Swords", "MAIN_SCIMITAR_MORGANA": "Clarent Blade",
+    "2H_CLEAVER_HELL": "Carving Sword", "2H_DUALSCIMITAR_UNDEAD": "Galatine Pair",
+    "MAIN_AXE": "Battleaxe", "2H_AXE": "Greataxe", "2H_HALBERD": "Halberd",
+    "2H_HALBERD_MORGANA": "Carrioncaller", "2H_SCYTHE_HELL": "Infernal Scythe",
+    "2H_DUALAXE_KEEPER": "Bear Paws",
+    "MAIN_MACE": "Mace", "2H_MACE": "Heavy Mace", "2H_FLAIL": "Morning Star",
+    "MAIN_ROCKMACE_KEEPER": "Bedrock Mace", "MAIN_MACE_HELL": "Incubus Mace",
+    "2H_MACE_MORGANA": "Camlann Mace",
+    "MAIN_HAMMER": "Hammer", "2H_POLEHAMMER": "Polehammer",
+    "2H_HAMMER": "Great Hammer", "2H_HAMMER_UNDEAD": "Tombhammer",
+    "2H_DUALHAMMER_HELL": "Forge Hammers", "2H_RAM_KEEPER": "Grovekeeper",
     # daggers, spears, quarterstaffs, war gloves
-    "MAIN_DAGGER", "2H_DAGGERPAIR", "2H_CLAWPAIR", "MAIN_RAPIER_MORGANA",
-    "MAIN_DAGGER_HELL", "2H_DUALSICKLE_UNDEAD",
-    "MAIN_SPEAR", "2H_SPEAR", "2H_GLAIVE", "MAIN_SPEAR_KEEPER",
-    "2H_HARPOON_HELL", "2H_TRIDENT_UNDEAD",
-    "2H_QUARTERSTAFF", "2H_IRONCLADEDSTAFF", "2H_DOUBLEBLADEDSTAFF",
-    "2H_COMBATSTAFF_MORGANA", "2H_TWINSCYTHE_HELL", "2H_ROCKSTAFF_KEEPER",
-    "2H_KNUCKLES_SET1", "2H_KNUCKLES_SET2", "2H_KNUCKLES_SET3",
-    "2H_KNUCKLES_KEEPER", "2H_KNUCKLES_HELL", "2H_KNUCKLES_MORGANA",
+    "MAIN_DAGGER": "Dagger", "2H_DAGGERPAIR": "Dagger Pair", "2H_CLAWPAIR": "Claws",
+    "MAIN_RAPIER_MORGANA": "Bloodletter", "MAIN_DAGGER_HELL": "Demonfang",
+    "2H_DUALSICKLE_UNDEAD": "Deathgivers",
+    "MAIN_SPEAR": "Spear", "2H_SPEAR": "Pike", "2H_GLAIVE": "Glaive",
+    "MAIN_SPEAR_KEEPER": "Heron Spear", "2H_HARPOON_HELL": "Spirithunter",
+    "2H_TRIDENT_UNDEAD": "Trinity Spear",
+    "2H_QUARTERSTAFF": "Quarterstaff", "2H_IRONCLADEDSTAFF": "Iron-clad Staff",
+    "2H_DOUBLEBLADEDSTAFF": "Double Bladed Staff",
+    "2H_COMBATSTAFF_MORGANA": "Black Monk Stave", "2H_TWINSCYTHE_HELL": "Soulscythe",
+    "2H_ROCKSTAFF_KEEPER": "Staff of Balance",
+    "2H_KNUCKLES_SET1": "Brawler Gloves", "2H_KNUCKLES_SET2": "Battle Bracers",
+    "2H_KNUCKLES_SET3": "Spiked Gauntlets", "2H_KNUCKLES_KEEPER": "Ursine Maulers",
+    "2H_KNUCKLES_HELL": "Hellfire Hands", "2H_KNUCKLES_MORGANA": "Ravenstrike Cestus",
     # bows, crossbows
-    "2H_BOW", "2H_WARBOW", "2H_LONGBOW", "2H_LONGBOW_UNDEAD", "2H_BOW_HELL",
-    "2H_BOW_KEEPER",
-    "2H_CROSSBOW", "2H_CROSSBOWLARGE", "MAIN_1HCROSSBOW",
-    "2H_REPEATINGCROSSBOW_UNDEAD", "2H_DUALCROSSBOW_HELL",
-    "2H_CROSSBOWLARGE_MORGANA",
+    "2H_BOW": "Bow", "2H_WARBOW": "Warbow", "2H_LONGBOW": "Longbow",
+    "2H_LONGBOW_UNDEAD": "Whispering Bow", "2H_BOW_HELL": "Wailing Bow",
+    "2H_BOW_KEEPER": "Bow of Badon",
+    "2H_CROSSBOW": "Crossbow", "2H_CROSSBOWLARGE": "Heavy Crossbow",
+    "MAIN_1HCROSSBOW": "Light Crossbow",
+    "2H_REPEATINGCROSSBOW_UNDEAD": "Weeping Repeater",
+    "2H_DUALCROSSBOW_HELL": "Boltcasters", "2H_CROSSBOWLARGE_MORGANA": "Siegebow",
     # staffs
-    "MAIN_FIRESTAFF", "2H_FIRESTAFF", "2H_INFERNOSTAFF", "MAIN_FIRESTAFF_KEEPER",
-    "2H_FIRESTAFF_HELL", "2H_INFERNOSTAFF_MORGANA",
-    "MAIN_FROSTSTAFF", "2H_FROSTSTAFF", "2H_GLACIALSTAFF",
-    "MAIN_FROSTSTAFF_KEEPER", "2H_ICEGAUNTLETS_HELL", "2H_ICECRYSTAL_UNDEAD",
-    "MAIN_ARCANESTAFF", "2H_ARCANESTAFF", "2H_ENIGMATICSTAFF",
-    "MAIN_ARCANESTAFF_UNDEAD", "2H_ARCANESTAFF_HELL", "2H_ENIGMATICORB_MORGANA",
-    "MAIN_HOLYSTAFF", "2H_HOLYSTAFF", "2H_DIVINESTAFF", "MAIN_HOLYSTAFF_MORGANA",
-    "2H_HOLYSTAFF_HELL", "2H_HOLYSTAFF_UNDEAD",
-    "MAIN_NATURESTAFF", "2H_NATURESTAFF", "2H_WILDSTAFF",
-    "MAIN_NATURESTAFF_KEEPER", "2H_NATURESTAFF_HELL", "2H_NATURESTAFF_KEEPER",
-    "MAIN_CURSEDSTAFF", "2H_CURSEDSTAFF", "2H_DEMONICSTAFF",
-    "MAIN_CURSEDSTAFF_UNDEAD", "2H_SKULLORB_HELL", "2H_CURSEDSTAFF_MORGANA",
+    "MAIN_FIRESTAFF": "Fire Staff", "2H_FIRESTAFF": "Great Fire Staff",
+    "2H_INFERNOSTAFF": "Infernal Staff", "MAIN_FIRESTAFF_KEEPER": "Wildfire Staff",
+    "2H_FIRESTAFF_HELL": "Brimstone Staff", "2H_INFERNOSTAFF_MORGANA": "Blazing Staff",
+    "MAIN_FROSTSTAFF": "Frost Staff", "2H_FROSTSTAFF": "Great Frost Staff",
+    "2H_GLACIALSTAFF": "Glacial Staff", "MAIN_FROSTSTAFF_KEEPER": "Hoarfrost Staff",
+    "2H_ICEGAUNTLETS_HELL": "Icicle Staff", "2H_ICECRYSTAL_UNDEAD": "Permafrost Prism",
+    "MAIN_ARCANESTAFF": "Arcane Staff", "2H_ARCANESTAFF": "Great Arcane Staff",
+    "2H_ENIGMATICSTAFF": "Enigmatic Staff",
+    "MAIN_ARCANESTAFF_UNDEAD": "Witchwork Staff", "2H_ARCANESTAFF_HELL": "Occult Staff",
+    "2H_ENIGMATICORB_MORGANA": "Malevolent Locus",
+    "MAIN_HOLYSTAFF": "Holy Staff", "2H_HOLYSTAFF": "Great Holy Staff",
+    "2H_DIVINESTAFF": "Divine Staff", "MAIN_HOLYSTAFF_MORGANA": "Lifetouch Staff",
+    "2H_HOLYSTAFF_HELL": "Fallen Staff", "2H_HOLYSTAFF_UNDEAD": "Redemption Staff",
+    "MAIN_NATURESTAFF": "Nature Staff", "2H_NATURESTAFF": "Great Nature Staff",
+    "2H_WILDSTAFF": "Wild Staff", "MAIN_NATURESTAFF_KEEPER": "Druidic Staff",
+    "2H_NATURESTAFF_HELL": "Blight Staff", "2H_NATURESTAFF_KEEPER": "Rampant Staff",
+    "MAIN_CURSEDSTAFF": "Cursed Staff", "2H_CURSEDSTAFF": "Great Cursed Staff",
+    "2H_DEMONICSTAFF": "Demonic Staff", "MAIN_CURSEDSTAFF_UNDEAD": "Lifecurse Staff",
+    "2H_SKULLORB_HELL": "Cursed Skull", "2H_CURSEDSTAFF_MORGANA": "Damnation Staff",
     # off-hands
-    "OFF_SHIELD", "OFF_TOWERSHIELD_UNDEAD", "OFF_SPIKEDSHIELD_MORGANA",
-    "OFF_SHIELD_HELL", "OFF_BOOK", "OFF_ORB_MORGANA", "OFF_DEMONSKULL_HELL",
-    "OFF_TOTEM_KEEPER", "OFF_TORCH", "OFF_HORN_KEEPER", "OFF_LAMP_UNDEAD",
-    "OFF_JESTERCANE_HELL",
-] + _ARMOR + [
+    "OFF_SHIELD": "Shield", "OFF_TOWERSHIELD_UNDEAD": "Sarcophagus",
+    "OFF_SPIKEDSHIELD_MORGANA": "Caitiff Shield", "OFF_SHIELD_HELL": "Facebreaker",
+    "OFF_BOOK": "Tome of Spells", "OFF_ORB_MORGANA": "Eye of Secrets",
+    "OFF_DEMONSKULL_HELL": "Muisak", "OFF_TOTEM_KEEPER": "Taproot",
+    "OFF_TORCH": "Torch", "OFF_HORN_KEEPER": "Mistcaller",
+    "OFF_LAMP_UNDEAD": "Cryptcandle", "OFF_JESTERCANE_HELL": "Leering Cane",
     # capes and bags
-    "CAPE", "CAPEITEM_FW_BRIDGEWATCH", "CAPEITEM_FW_FORTSTERLING",
-    "CAPEITEM_FW_LYMHURST", "CAPEITEM_FW_MARTLOCK", "CAPEITEM_FW_THETFORD",
-    "CAPEITEM_FW_CAERLEON", "BAG", "BAG_INSIGHT",
-]
+    "CAPE": "Cape", "BAG": "Bag", "BAG_INSIGHT": "Satchel of Insight",
+    "CAPEITEM_FW_BRIDGEWATCH": "Bridgewatch Cape",
+    "CAPEITEM_FW_FORTSTERLING": "Fort Sterling Cape",
+    "CAPEITEM_FW_LYMHURST": "Lymhurst Cape", "CAPEITEM_FW_MARTLOCK": "Martlock Cape",
+    "CAPEITEM_FW_THETFORD": "Thetford Cape", "CAPEITEM_FW_CAERLEON": "Caerleon Cape",
+}
+for _kind, (_sets, _pieces) in _ARMOR_SETS.items():
+    for _fam, _set_name in _sets.items():
+        for _slot, _piece in zip(("HEAD", "ARMOR", "SHOES"), _pieces):
+            BUILTIN_NAMES[f"{_slot}_{_kind}_{_fam}"] = f"{_set_name} {_piece}"
+BUILTIN_GEAR = list(BUILTIN_NAMES)
 
 
 # --------------------------------------------------------------------------
@@ -188,6 +224,16 @@ def load_item_names(cache_file=CACHE_FILE):
         except OSError:
             pass  # the cache is a convenience only
     return names
+
+
+def builtin_name(item_id):
+    """English name for a built-in gear id, e.g. T6_ARMOR_CLOTH_SET2@1 ->
+    "Master's Cleric Robe .1", or None when the id isn't in the list."""
+    m = re.match(r"^T(\d)_(.+?)(?:@(\d))?$", item_id)
+    if not m or m.group(2) not in BUILTIN_NAMES:
+        return None
+    name = f"{TIER_WORDS[int(m.group(1))]} {BUILTIN_NAMES[m.group(2)]}"
+    return f"{name} .{m.group(3)}" if m.group(3) else name
 
 
 def builtin_items(tiers):
@@ -377,8 +423,7 @@ def print_table(rows, names):
            "Total profit", "Vol/d", "Age(h)", "Risk")
     table = []
     for c in rows:
-        name = names.get(c["item"])
-        label = (f"{c['item'].split('_')[0]} {name}" if name else c["item"])[:34]
+        label = (names.get(c["item"]) or c["item"])[:40]
         vol = "?" if c["volume"] is None else f"{c['volume']:.0f}"
         table.append((
             label, f"{c['src']}->{c['dst']}", fmt(c["buy"]), fmt(c["sell"]),
@@ -754,6 +799,8 @@ def main(argv=None):
             items = items[:args.limit_items]
     if not items:
         sys.exit("No items to scan.")
+    if not names:
+        names = {i: builtin_name(i) for i in items if builtin_name(i)}
     print(f"Scanning {len(items)} items on {args.server} "
           f"(tax {cfg['tax']*100:.0f}%, quality {args.quality})", file=sys.stderr)
 
