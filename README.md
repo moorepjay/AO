@@ -19,6 +19,7 @@ python albion_flip_scanner.py --tiers 5,6 --top 30
 python albion_flip_scanner.py --items T4_BAG,T5_BAG,T6_BAG --premium
 python albion_flip_scanner.py --mode bm --budget 38617746
 python albion_flip_scanner.py --items-file my_items.txt     # your own item list
+python albion_flip_scanner.py --html flips.html             # also write a results page
 python albion_flip_scanner.py --limit-items 50 --no-volume   # fast test run
 ```
 
@@ -46,6 +47,7 @@ The results print as a table and are also saved to `flips.csv` (change this with
 
    Prices older than `--max-age` hours are ignored. Flips are dropped when they fall below `--min-profit` or `--min-roi`, or rise above `--max-roi` (very large margins are usually bad data).
 4. **Volume:** for the top candidates it pulls the last 7 days of daily history (`/api/v2/stats/history`) to estimate how many items sell per day at the destination.
+   Flips with no sales history at the destination are dropped, since there's no evidence they would sell.
 5. **Sizing:** quantity = `budget × risk fraction ÷ buy price`, capped at `--vol-share` of daily volume. Routes touching Caerleon or the Black Market count as **HIGH** risk (`--risk-frac`); everything else is **MED** (`--med-frac`).
 
 ## Options
@@ -71,6 +73,7 @@ The results print as a table and are also saved to `flips.csv` (change this with
 | `--top` | `25` | rows to show |
 | `--sort` | `total` | `total` (total profit), `profit` (per item), or `roi` |
 | `--no-volume` | off | skip the history lookups (faster, but no volume cap) |
+| `--html` | — | also write a self-contained results page (sortable, filterable) |
 | `--csv` | `flips.csv` | output file (written with just a header when nothing passes the filters) |
 
 If nothing passes the filters, the data is probably thin for your tiers: try
