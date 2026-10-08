@@ -2,6 +2,7 @@
 import contextlib
 import csv
 import io
+import json
 import os
 import socket
 import sys
@@ -254,6 +255,24 @@ class OutputTests(unittest.TestCase):
             afs.write_csv(path, [], {})
             with open(path, encoding="utf-8") as f:
                 self.assertTrue(f.read().startswith("item,name,src,dst"))
+
+    def test_html_embeds_rows(self):
+        c = afs.size_position({
+            "item": "T4_BAG", "src": "Lymhurst", "dst": "Martlock",
+            "how": "instant", "buy": 1000, "sell": 2000, "profit": 840,
+            "roi": 84.0, "data_age_h": 1.0, "risk": "MED",
+        }, cfg(), {})
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "out.html")
+            afs.write_html(path, [c], {"T4_BAG": "</script>Bag"},
+                           {"generated": "x", "server": "americas", "settings": {}})
+            with open(path, encoding="utf-8") as f:
+                page = f.read()
+        self.assertNotIn("__SCAN_JSON__", page)
+        blob = page.split('type="application/json">', 1)[1].split("</script>", 1)[0]
+        data = json.loads(blob)
+        self.assertEqual(data["rows"][0]["name"], "</script>Bag")
+        self.assertEqual(data["rows"][0]["qty"], c["qty"])
 
     def test_table_label(self):
         c = afs.size_position({

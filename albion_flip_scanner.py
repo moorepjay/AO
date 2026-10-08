@@ -404,6 +404,276 @@ def write_csv(path, rows, names):
                         for k in cols])
 
 
+def write_html(path, rows, names, meta):
+    """Self-contained results page (sortable table + summary)."""
+    cols = ["item", "src", "dst", "how", "buy", "sell", "profit", "roi", "qty",
+            "total_cost", "total_profit", "volume", "data_age_h", "risk"]
+    data = dict(meta, rows=[dict({k: c.get(k) for k in cols},
+                                 name=names.get(c["item"], ""))
+                            for c in rows])
+    # "</" inside the JSON would end the <script> block early
+    blob = json.dumps(data).replace("</", "<\\/")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(HTML_TEMPLATE.replace("__SCAN_JSON__", blob))
+
+
+HTML_TEMPLATE = r"""<title>Albion Flip Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one column — header strip, three summary tiles, filter chips, wide sortable ledger. */
+:root {
+  --bg: #f3f4f7; --panel: #ffffff; --fg: #1b2230; --muted: #5d6779; --line: #dde1e8;
+  --accent: #b07a12; --accent-soft: #f6ead0;
+  --good: #1f7a4d; --warn: #a3620a; --bad: #b3261e;
+  --high-bg: #fbe3e1; --med-bg: #e3eefb; --med-fg: #1d4f91;
+  --display: "Archivo", system-ui, sans-serif;
+  --body: "Archivo", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --panel: #1a2029; --fg: #e6e9ef; --muted: #98a2b3; --line: #2b3340;
+  --accent: #e0aa45; --accent-soft: #3a2f19;
+  --good: #5fc796; --warn: #e8a64a; --bad: #f08a80;
+  --high-bg: #3d2224; --med-bg: #1f2d42; --med-fg: #9cc3f5; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --panel: #1a2029; --fg: #e6e9ef; --muted: #98a2b3; --line: #2b3340;
+  --accent: #e0aa45; --accent-soft: #3a2f19;
+  --good: #5fc796; --warn: #e8a64a; --bad: #f08a80;
+  --high-bg: #3d2224; --med-bg: #1f2d42; --med-fg: #9cc3f5; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 14px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px;
+  display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
+h1 { font-family: var(--display); font-weight: 800; font-size: 28px; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h1 span { color: var(--accent); }
+.stamp { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.settings { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings span { font-family: var(--mono); font-size: 11.5px; padding: 3px 8px; border: 1px solid var(--line);
+  border-radius: 4px; color: var(--muted); background: var(--panel); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.tile .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.tile .value { font-family: var(--mono); font-size: 26px; font-weight: 600; margin-top: 4px;
+  font-variant-numeric: tabular-nums; }
+.tile .value small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.tile .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.tile.lead .value { color: var(--accent); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filters .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-right: 4px; }
+.chip { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); font-weight: 600; }
+.chip:focus-visible, th button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ledger { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; min-width: 980px; }
+th, td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600;
+  position: sticky; top: 0; background: var(--panel); }
+th button { all: unset; cursor: pointer; }
+th button[data-dir]::after { content: " ▾"; color: var(--accent); }
+th button[data-dir="asc"]::after { content: " ▴"; }
+td { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+td.item { font-family: var(--body); font-size: 14px; }
+td.item .id { display: block; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+td.rank { color: var(--muted); }
+tbody tr:hover { background: var(--accent-soft); }
+.route { font-family: var(--body); font-size: 13.5px; }
+.route .arrow { color: var(--muted); padding: 0 4px; }
+.pill { display: inline-block; font-family: var(--body); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em;
+  padding: 2px 7px; border-radius: 3px; margin-left: 6px; vertical-align: 1px; }
+.pill.HIGH { background: var(--high-bg); color: var(--bad); }
+.pill.MED { background: var(--med-bg); color: var(--med-fg); }
+.profit { color: var(--good); font-weight: 600; }
+.total { font-weight: 600; }
+.age-ok { color: var(--fg); } .age-warn { color: var(--warn); } .age-old { color: var(--bad); }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+.empty strong { display: block; color: var(--fg); font-size: 16px; margin-bottom: 6px; }
+footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 75ch; }
+footer code { font-family: var(--mono); font-size: 12px; }
+@media (max-width: 560px) { h1 { font-size: 23px; } .tile .value { font-size: 22px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Albion <span>Flip Board</span></h1>
+    <div class="stamp" id="stamp"></div>
+  </header>
+  <div class="settings" id="settings"></div>
+  <section class="tiles" id="tiles"></section>
+  <div class="filters" id="filters"></div>
+  <div class="ledger"><table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table><div class="empty" id="empty" hidden></div></div>
+  <footer>
+    Buy at the source city's lowest sell order, sell instantly into the destination's highest buy order
+    (or list it, where shown), after market tax. Qty is capped by your risk allocation and by a share of
+    the destination's average daily sales. Prices come from players running the Albion Data Client, so
+    confirm them in-game, check the danger of your route, and don't carry more than you can lose.
+  </footer>
+</div>
+
+<script id="scan" type="application/json">__SCAN_JSON__</script>
+<script>
+(function () {
+  var scan = JSON.parse(document.getElementById("scan").textContent);
+  var rows = scan.rows.map(function (r, i) { r.rank = i + 1; return r; });
+  var nf = new Intl.NumberFormat("en-US");
+  function silver(n) {
+    var a = Math.abs(n);
+    if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e8 ? 0 : 1) + "M";
+    if (a >= 1e4) return Math.round(n / 1e3) + "k";
+    return nf.format(n);
+  }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  var when = new Date(scan.generated);
+  document.getElementById("stamp").textContent =
+    scan.server + " · scanned " + when.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  var s = scan.settings;
+  [s.items + " items", "tiers " + s.tiers, "tax " + s.tax + "%", "max age " + s.max_age + "h",
+   "min profit " + nf.format(s.min_profit), "ROI " + s.min_roi + "–" + s.max_roi + "%",
+   "budget " + silver(s.budget), "quality " + s.quality, "sell " + s.sell_mode]
+    .forEach(function (t) { document.getElementById("settings").appendChild(el("span", null, t)); });
+
+  // Summary tiles
+  var tiles = document.getElementById("tiles");
+  function tile(label, value, unit, sub, lead) {
+    var t = el("div", "tile" + (lead ? " lead" : ""));
+    t.appendChild(el("div", "label", label));
+    var v = el("div", "value", value);
+    if (unit) v.appendChild(el("small", null, " " + unit));
+    t.appendChild(v);
+    if (sub) t.appendChild(el("div", "sub", sub));
+    tiles.appendChild(t);
+  }
+  if (rows.length) {
+    var best = rows.reduce(function (a, b) { return b.total_profit > a.total_profit ? b : a; });
+    tile("Best trip", silver(best.total_profit), "silver",
+         best.qty + " × " + (best.name || best.item) + ", " + best.src + " → " + best.dst, true);
+    var bestEa = rows.reduce(function (a, b) { return b.profit > a.profit ? b : a; });
+    tile("Best per item", silver(bestEa.profit), "each",
+         (bestEa.name || bestEa.item) + " at " + bestEa.roi.toFixed(0) + "% ROI");
+    var ages = rows.map(function (r) { return r.data_age_h; }).sort(function (a, b) { return a - b; });
+    tile("Flips found", String(rows.length), null,
+         "median price age " + ages[Math.floor(ages.length / 2)].toFixed(1) + "h");
+  } else {
+    tile("Flips found", "0", null, "nothing passed the filters this scan", true);
+  }
+
+  // Filters
+  var dests = Array.from(new Set(rows.map(function (r) { return r.dst; }))).sort();
+  var state = { dst: "all", risk: "all", sort: "total_profit", dir: "desc" };
+  var filters = document.getElementById("filters");
+  function chipGroup(label, key, values) {
+    if (values.length < 2) return;
+    filters.appendChild(el("span", "lbl", label));
+    ["all"].concat(values).forEach(function (v) {
+      var b = el("button", "chip", v === "all" ? "All" : v);
+      b.type = "button";
+      b.dataset.key = key; b.dataset.val = v;
+      b.setAttribute("aria-pressed", String(state[key] === v));
+      b.addEventListener("click", function () {
+        state[key] = v;
+        filters.querySelectorAll('[data-key="' + key + '"]').forEach(function (c) {
+          c.setAttribute("aria-pressed", String(c.dataset.val === v));
+        });
+        render();
+      });
+      filters.appendChild(b);
+    });
+  }
+  chipGroup("Sell in", "dst", dests);
+  chipGroup("Risk", "risk", Array.from(new Set(rows.map(function (r) { return r.risk; }))).sort());
+
+  // Table
+  var cols = [
+    ["rank", "#"], ["item", "Item"], ["route", "Route"], ["buy", "Buy"], ["sell", "Sell"],
+    ["profit", "Profit/ea"], ["roi", "ROI"], ["qty", "Qty"], ["total_cost", "Cost"],
+    ["total_profit", "Trip profit"], ["volume", "Sold/day"], ["data_age_h", "Age"]
+  ];
+  var head = document.getElementById("head");
+  cols.forEach(function (c) {
+    var th = el("th");
+    var b = el("button", null, c[1]);
+    b.type = "button";
+    b.dataset.sort = c[0];
+    b.addEventListener("click", function () {
+      if (state.sort === c[0]) state.dir = state.dir === "desc" ? "asc" : "desc";
+      else { state.sort = c[0]; state.dir = (c[0] === "rank" || c[0] === "data_age_h" ||
+                                             c[0] === "item" || c[0] === "route") ? "asc" : "desc"; }
+      render();
+    });
+    th.appendChild(b);
+    head.appendChild(th);
+  });
+
+  function key(r, k) {
+    if (k === "item") return (r.name || r.item).toLowerCase();
+    if (k === "route") return r.src + r.dst;
+    return r[k] == null ? -Infinity : r[k];
+  }
+  function render() {
+    head.querySelectorAll("button").forEach(function (b) {
+      if (b.dataset.sort === state.sort) b.dataset.dir = state.dir; else delete b.dataset.dir;
+    });
+    var list = rows.filter(function (r) {
+      return (state.dst === "all" || r.dst === state.dst) && (state.risk === "all" || r.risk === state.risk);
+    }).sort(function (a, b) {
+      var x = key(a, state.sort), y = key(b, state.sort);
+      var d = x < y ? -1 : x > y ? 1 : 0;
+      return state.dir === "asc" ? d : -d;
+    });
+    var body = document.getElementById("rows");
+    body.textContent = "";
+    list.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "rank", String(r.rank)));
+      var it = el("td", "item", r.name || r.item);
+      if (r.name) it.appendChild(el("span", "id", r.item));
+      tr.appendChild(it);
+      var rt = el("td", "route");
+      rt.appendChild(document.createTextNode(r.src));
+      rt.appendChild(el("span", "arrow", "→"));
+      rt.appendChild(document.createTextNode(r.dst + (r.how === "listed" ? " (list)" : "")));
+      rt.appendChild(el("span", "pill " + r.risk, r.risk));
+      tr.appendChild(rt);
+      tr.appendChild(el("td", null, nf.format(r.buy)));
+      tr.appendChild(el("td", null, nf.format(r.sell)));
+      tr.appendChild(el("td", "profit", nf.format(r.profit)));
+      tr.appendChild(el("td", null, r.roi.toFixed(0) + "%"));
+      tr.appendChild(el("td", null, nf.format(r.qty)));
+      tr.appendChild(el("td", null, silver(r.total_cost)));
+      tr.appendChild(el("td", "total", silver(r.total_profit)));
+      tr.appendChild(el("td", null, r.volume == null ? "–" : nf.format(Math.round(r.volume))));
+      var age = r.data_age_h;
+      tr.appendChild(el("td", age <= 2 ? "age-ok" : age <= 6 ? "age-warn" : "age-old", age.toFixed(1) + "h"));
+      body.appendChild(tr);
+    });
+    var empty = document.getElementById("empty");
+    empty.hidden = list.length > 0;
+    if (!list.length) {
+      empty.textContent = "";
+      empty.appendChild(el("strong", null, rows.length ? "No flips match these filters" : "No flips this scan"));
+      empty.appendChild(document.createTextNode(rows.length
+        ? "Pick “All” above to see every route."
+        : "Market data is thin for these settings. Rescan with a longer max age or a lower minimum profit."));
+    }
+  }
+  render();
+})();
+</script>
+"""
+
+
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
@@ -441,6 +711,7 @@ def build_parser():
     p.add_argument("--sort", choices=["total", "profit", "roi"], default="total")
     p.add_argument("--no-volume", action="store_true", help="skip history lookups")
     p.add_argument("--csv", default="flips.csv")
+    p.add_argument("--html", help="also write a results page to this file")
     return p
 
 
@@ -510,8 +781,21 @@ def main(argv=None):
             c = evaluate(item, s, d, prices, cfg, now)
             if c:
                 cands.append(c)
+    meta = {
+        "generated": now.isoformat(), "server": args.server,
+        "settings": {
+            "items": len(items),
+            "tiers": "custom" if (args.items or args.items_file) else args.tiers,
+            "tax": round(cfg["tax"] * 100, 1), "max_age": args.max_age,
+            "min_profit": args.min_profit, "min_roi": args.min_roi,
+            "max_roi": args.max_roi, "budget": args.budget,
+            "quality": args.quality, "sell_mode": args.sell_mode,
+        },
+    }
     if not cands:
         write_csv(args.csv, [], names)
+        if args.html:
+            write_html(args.html, [], names, meta)
         print(f"No flips passed the filters (max age {args.max_age}h, min profit "
               f"{args.min_profit:,}, ROI {args.min_roi:g}-{args.max_roi:g}%).\n"
               "Try e.g. --max-age 24 --min-profit 1000, or scan more items/tiers.\n"
@@ -526,6 +810,13 @@ def main(argv=None):
         print("Checking sales volume for shortlist...", file=sys.stderr)
         volume = fetch_volume(host, {(c["item"], c["dst"]) for c in shortlist},
                               args.quality)
+        # No sales history at the destination means we can't tell whether the
+        # items would actually sell, so don't suggest buying them.
+        known = [c for c in shortlist if (c["item"], c["dst"]) in volume]
+        if len(known) < len(shortlist):
+            print(f"  skipped {len(shortlist) - len(known)} flips with no sales "
+                  "history", file=sys.stderr)
+        shortlist = known
     sized = [size_position(c, cfg, volume) for c in shortlist]
     sized = [c for c in sized if c["qty"] > 0]
 
@@ -536,6 +827,9 @@ def main(argv=None):
     print()
     print_table(top, names)
     write_csv(args.csv, top, names)
+    if args.html:
+        write_html(args.html, top, names, meta)
+        print(f"Wrote results page to {args.html}")
     print(f"\nSaved {len(top)} rows to {args.csv}")
     print("Reminders: confirm prices in-game, check zone danger on your route, "
           "and don't carry more than your risk allocation.")
