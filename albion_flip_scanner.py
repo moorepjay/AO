@@ -15,6 +15,7 @@ Examples
   python albion_flip_scanner.py --tiers 5,6 --top 30
   python albion_flip_scanner.py --items T4_BAG,T5_BAG,T6_BAG --premium
   python albion_flip_scanner.py --mode bm --budget 38617746
+  python albion_flip_scanner.py --items-file my_items.txt
 
 Data is crowd-sourced by players running the Albion Data Client, so rows can be
 stale or wrong. Always sanity-check a flip in-game before committing silver.
@@ -23,7 +24,9 @@ import argparse
 import csv
 import gzip
 import json
+import os
 import re
+import socket
 import sys
 import time
 import urllib.error
@@ -48,15 +51,83 @@ TAX_PREMIUM = 0.04      # sales tax with premium
 TAX_NO_PREMIUM = 0.08   # sales tax without premium
 SETUP_FEE = 0.025       # fee for placing a sell/buy order
 
-GEAR_PATTERN = re.compile(r"^T(\d)_(MAIN|2H|OFF|HEAD|ARMOR|SHOES|CAPEITEM|BAG)_[A-Z0-9_]+$")
+GEAR_PATTERN = re.compile(
+    r"^T(\d)_(?:(?:MAIN|2H|OFF|HEAD|ARMOR|SHOES|CAPEITEM|BAG)_[A-Z0-9_]+|BAG|CAPE)$")
 ITEM_LINE = re.compile(r"^\s*\d+:\s+(\S+)\s*:\s*(.*)$")
 
 MAX_URL = 3800  # API cap is 4096 chars; keep headroom
+CACHE_FILE = os.path.join(os.path.expanduser("~"), ".cache",
+                          "albion-flip-scanner", "items.txt")
+
+# Fallback gear list (ids without the "T<n>_" prefix), used when items.txt
+# can't be downloaded and there's no cached copy. Ids that don't exist for a
+# tier just come back with no prices.
+_ARMOR = [f"{slot}_{kind}_{fam}" for slot in ("HEAD", "ARMOR", "SHOES")
+          for kind in ("PLATE", "LEATHER", "CLOTH")
+          for fam in ("SET1", "SET2", "SET3", "UNDEAD", "HELL", "KEEPER")]
+BUILTIN_GEAR = [
+    # swords, axes, maces, hammers
+    "MAIN_SWORD", "2H_CLAYMORE", "2H_DUALSWORD", "MAIN_SCIMITAR_MORGANA",
+    "2H_CLEAVER_HELL", "2H_DUALSCIMITAR_UNDEAD",
+    "MAIN_AXE", "2H_AXE", "2H_HALBERD", "2H_HALBERD_MORGANA",
+    "2H_SCYTHE_HELL", "2H_DUALAXE_KEEPER",
+    "MAIN_MACE", "2H_MACE", "2H_FLAIL", "MAIN_ROCKMACE_KEEPER",
+    "MAIN_MACE_HELL", "2H_MACE_MORGANA",
+    "MAIN_HAMMER", "2H_POLEHAMMER", "2H_HAMMER", "2H_HAMMER_UNDEAD",
+    "2H_DUALHAMMER_HELL", "2H_RAM_KEEPER",
+    # daggers, spears, quarterstaffs, war gloves
+    "MAIN_DAGGER", "2H_DAGGERPAIR", "2H_CLAWPAIR", "MAIN_RAPIER_MORGANA",
+    "MAIN_DAGGER_HELL", "2H_DUALSICKLE_UNDEAD",
+    "MAIN_SPEAR", "2H_SPEAR", "2H_GLAIVE", "MAIN_SPEAR_KEEPER",
+    "2H_HARPOON_HELL", "2H_TRIDENT_UNDEAD",
+    "2H_QUARTERSTAFF", "2H_IRONCLADEDSTAFF", "2H_DOUBLEBLADEDSTAFF",
+    "2H_COMBATSTAFF_MORGANA", "2H_TWINSCYTHE_HELL", "2H_ROCKSTAFF_KEEPER",
+    "2H_KNUCKLES_SET1", "2H_KNUCKLES_SET2", "2H_KNUCKLES_SET3",
+    "2H_KNUCKLES_KEEPER", "2H_KNUCKLES_HELL", "2H_KNUCKLES_MORGANA",
+    # bows, crossbows
+    "2H_BOW", "2H_WARBOW", "2H_LONGBOW", "2H_LONGBOW_UNDEAD", "2H_BOW_HELL",
+    "2H_BOW_KEEPER",
+    "2H_CROSSBOW", "2H_CROSSBOWLARGE", "MAIN_1HCROSSBOW",
+    "2H_REPEATINGCROSSBOW_UNDEAD", "2H_DUALCROSSBOW_HELL",
+    "2H_CROSSBOWLARGE_MORGANA",
+    # staffs
+    "MAIN_FIRESTAFF", "2H_FIRESTAFF", "2H_INFERNOSTAFF", "MAIN_FIRESTAFF_KEEPER",
+    "2H_FIRESTAFF_HELL", "2H_INFERNOSTAFF_MORGANA",
+    "MAIN_FROSTSTAFF", "2H_FROSTSTAFF", "2H_GLACIALSTAFF",
+    "MAIN_FROSTSTAFF_KEEPER", "2H_ICEGAUNTLETS_HELL", "2H_ICECRYSTAL_UNDEAD",
+    "MAIN_ARCANESTAFF", "2H_ARCANESTAFF", "2H_ENIGMATICSTAFF",
+    "MAIN_ARCANESTAFF_UNDEAD", "2H_ARCANESTAFF_HELL", "2H_ENIGMATICORB_MORGANA",
+    "MAIN_HOLYSTAFF", "2H_HOLYSTAFF", "2H_DIVINESTAFF", "MAIN_HOLYSTAFF_MORGANA",
+    "2H_HOLYSTAFF_HELL", "2H_HOLYSTAFF_UNDEAD",
+    "MAIN_NATURESTAFF", "2H_NATURESTAFF", "2H_WILDSTAFF",
+    "MAIN_NATURESTAFF_KEEPER", "2H_NATURESTAFF_HELL", "2H_NATURESTAFF_KEEPER",
+    "MAIN_CURSEDSTAFF", "2H_CURSEDSTAFF", "2H_DEMONICSTAFF",
+    "MAIN_CURSEDSTAFF_UNDEAD", "2H_SKULLORB_HELL", "2H_CURSEDSTAFF_MORGANA",
+    # off-hands
+    "OFF_SHIELD", "OFF_TOWERSHIELD_UNDEAD", "OFF_SPIKEDSHIELD_MORGANA",
+    "OFF_SHIELD_HELL", "OFF_BOOK", "OFF_ORB_MORGANA", "OFF_DEMONSKULL_HELL",
+    "OFF_TOTEM_KEEPER", "OFF_TORCH", "OFF_HORN_KEEPER", "OFF_LAMP_UNDEAD",
+    "OFF_JESTERCANE_HELL",
+] + _ARMOR + [
+    # capes and bags
+    "CAPE", "CAPEITEM_FW_BRIDGEWATCH", "CAPEITEM_FW_FORTSTERLING",
+    "CAPEITEM_FW_LYMHURST", "CAPEITEM_FW_MARTLOCK", "CAPEITEM_FW_THETFORD",
+    "CAPEITEM_FW_CAERLEON", "BAG", "BAG_INSIGHT",
+]
 
 
 # --------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------
+def _transient(err):
+    """True for failures worth retrying (rate limit, server error, timeout)."""
+    if isinstance(err, urllib.error.HTTPError):
+        return err.code == 429 or err.code >= 500
+    if isinstance(err, urllib.error.URLError):
+        err = err.reason
+    return isinstance(err, (socket.timeout, TimeoutError, ConnectionError))
+
+
 def http_get(url, retries=4):
     req = urllib.request.Request(url, headers={
         "Accept-Encoding": "gzip",
@@ -70,14 +141,8 @@ def http_get(url, retries=4):
                 if resp.headers.get("Content-Encoding") == "gzip":
                     raw = gzip.decompress(raw)
                 return raw.decode("utf-8")
-        except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < retries - 1:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            raise
-        except urllib.error.URLError:
-            if attempt < retries - 1:
+        except (urllib.error.URLError, socket.timeout, ConnectionError) as e:
+            if attempt < retries - 1 and _transient(e):
                 time.sleep(delay)
                 delay *= 2
                 continue
@@ -91,14 +156,51 @@ def get_json(url):
 # --------------------------------------------------------------------------
 # Item list
 # --------------------------------------------------------------------------
-def load_item_names():
-    """Download items.txt and return {item_id: display_name}."""
+def parse_items_txt(text):
     names = {}
-    for line in http_get(ITEMS_TXT).splitlines():
+    for line in text.splitlines():
         m = ITEM_LINE.match(line)
         if m:
             names[m.group(1)] = m.group(2).strip()
     return names
+
+
+def load_item_names(cache_file=CACHE_FILE):
+    """
+    Return {item_id: display_name} from items.txt. A successful download is
+    cached; if the download fails, the cached copy is used instead.
+    """
+    try:
+        text = http_get(ITEMS_TXT, retries=2)
+    except Exception as e:
+        if cache_file and os.path.exists(cache_file):
+            print(f"Could not download item names ({e}); using cached copy "
+                  f"{cache_file}.", file=sys.stderr)
+            with open(cache_file, encoding="utf-8") as f:
+                return parse_items_txt(f.read())
+        raise
+    names = parse_items_txt(text)
+    if cache_file and names:
+        try:
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError:
+            pass  # the cache is a convenience only
+    return names
+
+
+def builtin_items(tiers):
+    return sorted(f"T{t}_{base}" for t in tiers for base in BUILTIN_GEAR)
+
+
+def read_items_file(path):
+    """Item ids separated by commas or whitespace; '#' starts a comment."""
+    items = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            items += re.split(r"[\s,]+", line.split("#", 1)[0].strip())
+    return [i for i in items if i]
 
 
 def auto_items(names, tiers):
@@ -275,8 +377,8 @@ def print_table(rows, names):
            "Total profit", "Vol/d", "Age(h)", "Risk")
     table = []
     for c in rows:
-        name = names.get(c["item"], c["item"])
-        label = f"{c['item'].split('_')[0]} {name}"[:34]
+        name = names.get(c["item"])
+        label = (f"{c['item'].split('_')[0]} {name}" if name else c["item"])[:34]
         vol = "?" if c["volume"] is None else f"{c['volume']:.0f}"
         table.append((
             label, f"{c['src']}->{c['dst']}", fmt(c["buy"]), fmt(c["sell"]),
@@ -311,6 +413,8 @@ def build_parser():
     p.add_argument("--mode", choices=["both", "royal", "bm"], default="both",
                    help="royal = city<->city, bm = Royal->Black Market")
     p.add_argument("--items", help="comma-separated item ids (skips auto list)")
+    p.add_argument("--items-file",
+                   help="file of item ids, comma/whitespace separated (skips auto list)")
     p.add_argument("--tiers", default="4,5,6", help="tiers for auto list")
     p.add_argument("--limit-items", type=int, default=0,
                    help="cap auto item count (for quick tests)")
@@ -360,15 +464,25 @@ def main(argv=None):
         print(f"Could not load item names ({e}); continuing with ids only.",
               file=sys.stderr)
 
-    if args.items:
-        items = [i.strip() for i in args.items.split(",") if i.strip()]
+    if args.items or args.items_file:
+        items = []
+        if args.items:
+            items += [i.strip() for i in args.items.split(",") if i.strip()]
+        if args.items_file:
+            items += read_items_file(args.items_file)
+        items = list(dict.fromkeys(items))
     else:
-        if not names:
-            sys.exit("Auto item list needs items.txt; pass --items instead.")
         tiers = {int(t) for t in args.tiers.split(",")}
-        items = auto_items(names, tiers)
+        if names:
+            items = auto_items(names, tiers)
+        else:
+            print("Using the built-in gear list instead of items.txt.",
+                  file=sys.stderr)
+            items = builtin_items(tiers)
         if args.limit_items:
             items = items[:args.limit_items]
+    if not items:
+        sys.exit("No items to scan.")
     print(f"Scanning {len(items)} items on {args.server} "
           f"(tax {cfg['tax']*100:.0f}%, quality {args.quality})", file=sys.stderr)
 
@@ -397,7 +511,11 @@ def main(argv=None):
             if c:
                 cands.append(c)
     if not cands:
-        print("No flips passed the filters. Try a larger --max-age or lower --min-roi.")
+        write_csv(args.csv, [], names)
+        print(f"No flips passed the filters (max age {args.max_age}h, min profit "
+              f"{args.min_profit:,}, ROI {args.min_roi:g}-{args.max_roi:g}%).\n"
+              "Try e.g. --max-age 24 --min-profit 1000, or scan more items/tiers.\n"
+              f"Wrote an empty {args.csv}.")
         return []
 
     # Pre-rank, then pull volume only for the leaders (saves API calls)

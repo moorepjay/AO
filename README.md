@@ -18,6 +18,7 @@ python albion_flip_scanner.py                        # auto item list, T4–T6 g
 python albion_flip_scanner.py --tiers 5,6 --top 30
 python albion_flip_scanner.py --items T4_BAG,T5_BAG,T6_BAG --premium
 python albion_flip_scanner.py --mode bm --budget 38617746
+python albion_flip_scanner.py --items-file my_items.txt     # your own item list
 python albion_flip_scanner.py --limit-items 50 --no-volume   # fast test run
 ```
 
@@ -33,8 +34,11 @@ The results print as a table and are also saved to `flips.csv` (change this with
 ## How it works
 
 1. **Item list:** downloads `items.txt` from [ao-bin-dumps](https://github.com/ao-data/ao-bin-dumps)
-   and picks the gear items (weapons, off-hands, armor, capes, bags) for the tiers you ask for.
-   Pass `--items` to scan your own list instead.
+   (via `raw.githubusercontent.com`) and picks the gear items (weapons, off-hands, armor, capes, bags)
+   for the tiers you ask for. A successful download is cached in `~/.cache/albion-flip-scanner/items.txt`
+   and used whenever the download fails. With no download and no cache, the scanner falls back to a
+   built-in list of common gear and shows item ids instead of names.
+   Pass `--items` or `--items-file` to scan your own list instead.
 2. **Prices:** calls `/api/v2/stats/prices` in batches, keeping each URL under the API's 4096-character limit.
 3. **Evaluation:** for every route it buys at the source's cheapest sell order and sells at the destination either:
    - **instant:** into the highest buy order (sales tax only), or
@@ -51,6 +55,7 @@ The results print as a table and are also saved to `flips.csv` (change this with
 | `--server` | `americas` | `americas`, `europe` or `asia` |
 | `--mode` | `both` | `royal` (city↔city), `bm` (Royal→Black Market), or `both` |
 | `--items` | — | comma-separated item ids (skips the auto list) |
+| `--items-file` | — | file of item ids, separated by commas or whitespace; `#` starts a comment |
 | `--tiers` | `4,5,6` | tiers for the auto list |
 | `--limit-items` | `0` | cap the auto item count (0 = no cap) |
 | `--quality` | `1` | item quality 1–5 |
@@ -66,7 +71,10 @@ The results print as a table and are also saved to `flips.csv` (change this with
 | `--top` | `25` | rows to show |
 | `--sort` | `total` | `total` (total profit), `profit` (per item), or `roi` |
 | `--no-volume` | off | skip the history lookups (faster, but no volume cap) |
-| `--csv` | `flips.csv` | output file |
+| `--csv` | `flips.csv` | output file (written with just a header when nothing passes the filters) |
+
+If nothing passes the filters, the data is probably thin for your tiers: try
+`--max-age 24 --min-profit 1000`, or add more tiers.
 
 ## Fees
 

@@ -1,9 +1,13 @@
 """Offline unit tests for albion_flip_scanner. No network access needed."""
+import contextlib
 import csv
+import io
 import os
+import socket
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -60,10 +64,62 @@ class ItemListTests(unittest.TestCase):
         names = {
             "T4_MAIN_SWORD": "", "T5_2H_BOW": "", "T7_HEAD_CLOTH_SET1": "",
             "T4_BAG": "", "T4_BAG_INSIGHT": "", "T4_WOOD": "",
-            "T6_ARMOR_LEATHER_SET2@1": "",
+            "T6_ARMOR_LEATHER_SET2@1": "", "T5_CAPE": "", "T4_BAGPACK": "",
         }
         self.assertEqual(afs.auto_items(names, {4, 5}),
-                         ["T4_BAG_INSIGHT", "T4_MAIN_SWORD", "T5_2H_BOW"])
+                         ["T4_BAG", "T4_BAG_INSIGHT", "T4_MAIN_SWORD",
+                          "T5_2H_BOW", "T5_CAPE"])
+
+    def test_builtin_items(self):
+        items = afs.builtin_items({4, 6})
+        self.assertIn("T4_BAG", items)
+        self.assertIn("T6_ARMOR_PLATE_SET1", items)
+        self.assertEqual(len(items), 2 * len(afs.BUILTIN_GEAR))
+        self.assertTrue(all(afs.GEAR_PATTERN.match(i) for i in items))
+
+    def test_read_items_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "items.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# my list\nT4_BAG, T5_BAG\nT6_CAPE  # cape\n\n")
+            self.assertEqual(afs.read_items_file(path),
+                             ["T4_BAG", "T5_BAG", "T6_CAPE"])
+
+    def test_load_item_names_uses_cache_when_offline(self):
+        text = "  1: T4_BAG : Adept's Bag\n"
+        real = afs.http_get
+        with tempfile.TemporaryDirectory() as d:
+            cache = os.path.join(d, "sub", "items.txt")
+            try:
+                afs.http_get = lambda url, retries=4: text
+                self.assertEqual(afs.load_item_names(cache), {"T4_BAG": "Adept's Bag"})
+                self.assertTrue(os.path.exists(cache))
+
+                def offline(url, retries=4):
+                    raise urllib.error.URLError("blocked")
+                afs.http_get = offline
+                self.assertEqual(afs.load_item_names(cache), {"T4_BAG": "Adept's Bag"})
+                with self.assertRaises(urllib.error.URLError):
+                    afs.load_item_names(os.path.join(d, "missing.txt"))
+            finally:
+                afs.http_get = real
+
+
+class TransientTests(unittest.TestCase):
+    def http_error(self, code):
+        return urllib.error.HTTPError("u", code, "x", {}, None)
+
+    def test_retryable(self):
+        self.assertTrue(afs._transient(self.http_error(429)))
+        self.assertTrue(afs._transient(self.http_error(503)))
+        self.assertTrue(afs._transient(urllib.error.URLError(socket.timeout())))
+        self.assertTrue(afs._transient(ConnectionResetError()))
+
+    def test_not_retryable(self):
+        self.assertFalse(afs._transient(self.http_error(403)))
+        self.assertFalse(afs._transient(self.http_error(404)))
+        self.assertFalse(afs._transient(urllib.error.URLError(
+            OSError("Tunnel connection failed: 403 Forbidden"))))
 
 
 class ChunkTests(unittest.TestCase):
@@ -191,6 +247,26 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["name"], "Adept's Bag")
         self.assertEqual(rows[0]["qty"], str(c["qty"]))
+
+    def test_empty_csv_has_header(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "out.csv")
+            afs.write_csv(path, [], {})
+            with open(path, encoding="utf-8") as f:
+                self.assertTrue(f.read().startswith("item,name,src,dst"))
+
+    def test_table_label(self):
+        c = afs.size_position({
+            "item": "T4_BAG", "src": "Lymhurst", "dst": "Martlock",
+            "how": "instant", "buy": 1000, "sell": 2000, "profit": 840,
+            "roi": 84.0, "data_age_h": 1.0, "risk": "MED",
+        }, cfg(), {})
+        for names, want in (({"T4_BAG": "Adept's Bag"}, "T4 Adept's Bag"),
+                            ({}, "T4_BAG ")):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                afs.print_table([c], names)
+            self.assertTrue(out.getvalue().splitlines()[2].startswith(want))
 
     def test_parser_defaults(self):
         args = afs.build_parser().parse_args([])
