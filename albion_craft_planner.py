@@ -2,12 +2,16 @@
 """
 Albion Craft Planner (leather)
 ------------------------------
-For a gatherer who refines and crafts their own hides: given live market
-prices, what is each hide you gathered worth if you
+For a gatherer who refines and crafts their own hides along the chain
 
-  * sell it raw,
-  * refine it into leather and sell the leather, or
-  * refine it and craft a leather jacket, then sell the jacket?
+  gather and bank (Caerleon) -> refine (Martlock, hide bonus)
+  -> craft jackets (Thetford, leather armor bonus) -> sell
+
+what is each hide you gathered worth if you
+
+  * sell it raw where it's banked,
+  * take it to Martlock, refine it and sell the leather, or
+  * refine it in Martlock, craft a leather jacket in Thetford and sell that?
 
 Prices are opportunity costs: your own hides are valued at what you could sell
 them for, and the lower-tier leather each refine needs at what it costs to buy.
@@ -16,7 +20,7 @@ Uses the same market data and helpers as albion_flip_scanner.
 Examples
   python albion_craft_planner.py
   python albion_craft_planner.py --tiers 5,6 --enchants 0,1 --premium
-  python albion_craft_planner.py --refine-rrr 0.539 --craft-rrr 0.479   # with focus
+  python albion_craft_planner.py --refine-rrr 0.539   # refine with focus too
   python albion_craft_planner.py --html plan.html
 """
 import argparse
@@ -34,12 +38,14 @@ LEATHER_PER_JACKET = 16
 JACKETS = {"SET1": "Mercenary Jacket", "SET2": "Hunter Jacket",
            "SET3": "Assassin Jacket"}
 
-# Resource return rates. Defaults: refining in Martlock (hide bonus city) and
-# crafting outside a bonus city, both without focus. VERIFY for your setup.
-REFINE_RRR = 0.367
-REFINE_RRR_NO_BONUS = 0.152
-CRAFT_RRR = 0.152
-CRAFT_RRR_FOCUS = 0.435
+# Where each step happens, and its resource return rate. Refining hides gets
+# Martlock's bonus; crafting leather armor gets Thetford's. VERIFY in-game.
+HOME = afs.CAERLEON
+REFINE_CITY = "Martlock"
+CRAFT_CITY = "Thetford"
+REFINE_RRR = 0.367        # Martlock, no focus (0.539 with focus)
+CRAFT_RRR = 0.248         # Thetford, no focus
+CRAFT_RRR_FOCUS = 0.479   # Thetford, with focus
 FOCUS_EDGE = 0.10  # recommend focus only when it pays at least 10% more
 
 
@@ -153,7 +159,8 @@ def plan_tier(t, e, prices, history, cfg, now):
     gear_markets = cfg.get("gear_markets", markets + [afs.BLACK_MARKET])
     n = HIDES_PER_LEATHER[t]
 
-    raw = best_sale(hide_id(t, e), markets, prices, history, cfg, now)
+    raw = best_sale(hide_id(t, e), cfg.get("raw_markets", markets), prices,
+                    history, cfg, now)
     prev = cheapest_buy(leather_id(t - 1, 0), markets, prices, cfg, now, history) if t > 2 else (0, "", 0)
     leather_sale = best_sale(leather_id(t, e), markets, prices, history, cfg, now)
     leather_buy = cheapest_buy(leather_id(t, e), markets, prices, cfg, now, history)
@@ -282,16 +289,14 @@ def build_parser():
     p.add_argument("--enchants", default="0,1,2,3")
     p.add_argument("--premium", action="store_true",
                    help="use premium tax rate (4%% instead of 8%%)")
-    p.add_argument("--scenario", choices=["both", "caerleon", "anywhere"],
-                   default="both", help="which session plans to show")
+    p.add_argument("--home", choices=afs.ROYAL + [afs.CAERLEON], default=HOME,
+                   help="where your gathered hides are banked")
     p.add_argument("--refine-rrr", type=float, default=REFINE_RRR,
                    help="refining return rate in Martlock (default: no focus)")
-    p.add_argument("--home-refine-rrr", type=float, default=REFINE_RRR_NO_BONUS,
-                   help="refining return rate in Caerleon (default: no focus)")
     p.add_argument("--craft-rrr", type=float, default=CRAFT_RRR,
-                   help="crafting resource return rate (default: no bonus, no focus)")
+                   help="jacket crafting return rate in Thetford, no focus")
     p.add_argument("--craft-rrr-focus", type=float, default=CRAFT_RRR_FOCUS,
-                   help="crafting return rate with focus (default: no bonus city)")
+                   help="jacket crafting return rate in Thetford, with focus")
     p.add_argument("--sell-mode", choices=["instant", "listed"], default="listed",
                    help="royal-city sales: list a sell order, or sell into buy orders")
     p.add_argument("--max-age", type=float, default=24.0,
@@ -304,26 +309,14 @@ def build_parser():
 
 def scenarios_for(args, base):
     """
-    The ways to play a session that the plan compares:
-      caerleon: refine, craft and sell where your stock already is (Caerleon
-                market and Black Market), instant sales only, so silver comes
-                in now and nothing is hauled.
-      anywhere: best city for every step, including listing sell orders.
+    Session plans to compare. One for now: the gather -> Martlock -> Thetford
+    chain. Hides sell raw only where they're banked (anything else means
+    hauling them anyway); leather and jackets sell wherever pays most.
     """
-    out = []
-    if args.scenario in ("both", "caerleon"):
-        out.append(("caerleon", "Stay in Caerleon",
-                    "Refine, craft and sell where your stock is. Instant sales to "
-                    "buy orders only, so silver lands now and nothing gets hauled.",
-                    dict(base, markets=[afs.CAERLEON],
-                         gear_markets=[afs.CAERLEON, afs.BLACK_MARKET],
-                         sell_mode="instant", refine_rrr=args.home_refine_rrr)))
-    if args.scenario in ("both", "anywhere"):
-        out.append(("anywhere", "Best city anywhere",
-                    "Refine in Martlock and sell wherever pays most, listing sell "
-                    "orders where they beat buy orders. More silver, more hauling.",
-                    dict(base, refine_rrr=args.refine_rrr)))
-    return out
+    return [("chain", "Gather, refine, craft",
+             f"Hides banked in {args.home}, refined in {REFINE_CITY}, jackets "
+             f"crafted in {CRAFT_CITY}, everything sold wherever pays most.",
+             dict(base, refine_rrr=args.refine_rrr, raw_markets=[args.home]))]
 
 
 def main(argv=None):
@@ -356,6 +349,8 @@ def main(argv=None):
         scenarios.append({
             "key": key, "title": title, "blurb": blurb, "plans": plans,
             "settings": {"tax": round(cfg["tax"] * 100, 1),
+                         "home": args.home, "refine_city": REFINE_CITY,
+                         "craft_city": CRAFT_CITY,
                          "refine_rrr": cfg["refine_rrr"],
                          "craft_rrr": cfg["craft_rrr"],
                          "craft_rrr_focus": cfg["craft_rrr_focus"],
@@ -411,6 +406,16 @@ h2 { font-family: var(--display); font-size: 18px; margin: 8px 0 0; }
   background: transparent; color: var(--muted); cursor: pointer; }
 .scen button[aria-selected="true"] { background: var(--accent-soft); color: var(--fg); }
 .scen button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.runs { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 12px; }
+.run { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0;
+  display: grid; gap: 8px; align-content: start; }
+.run .step { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.run h3 { margin: 0; font-family: var(--display); font-size: 16px; }
+.run ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.run li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; border-top: 1px solid var(--line); padding-top: 6px; }
+.run li b { font-family: var(--mono); font-weight: 600; }
+.run li span:last-child { color: var(--muted); text-align: right; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.run .none { color: var(--muted); font-size: 13px; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .filters .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-right: 4px; }
 .chip { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
@@ -452,6 +457,12 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
   <div class="settings" id="settings"></div>
 
   <section>
+    <h2>Run sheet</h2>
+    <p class="lede">The legs of your loop, in order, and what to carry on each one. Built from the plan below.</p>
+  </section>
+  <div class="runs" id="runs"></div>
+
+  <section>
     <h2>Your hides: what to do with them</h2>
     <p class="lede">Silver each gathered hide turns into, by path. The highlighted cell is the plan.
       Focus is only recommended when it beats every no-focus option by 10% or more.</p>
@@ -460,10 +471,10 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
   <div class="ledger"><table id="hides">
     <thead><tr>
       <th>Hide</th>
-      <th><span class="key sell"></span>Sell raw</th>
-      <th><span class="key refine"></span>Refine, sell leather</th>
-      <th><span class="key craft"></span>Craft jacket</th>
-      <th><span class="key craft_focus"></span>Craft with focus</th>
+      <th><span class="key sell"></span><span data-label="home">Sell raw</span></th>
+      <th><span class="key refine"></span><span data-label="refine">Refine, sell leather</span></th>
+      <th><span class="key craft"></span><span data-label="craft">Craft jacket</span></th>
+      <th><span class="key craft_focus"></span>…with focus</th>
       <th style="text-align:left">Plan</th>
     </tr></thead>
     <tbody id="hideRows"></tbody>
@@ -488,7 +499,8 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
       is trading but has no current price snapshot, the 7-day average sale price is used and marked "7-day avg". Lower-tier leather
       for refining is priced at the cheapest sell order. Station fees and item quality above Normal are not counted,
       so crafted jackets that roll better quality are worth a bit more than shown.</div>
-    <div>Return rates are settings: change them to match your city and focus. Prices come from players running the
+    <div>Return rates are settings: refining in Martlock (hide bonus) and crafting jackets in Thetford
+      (leather armor bonus). Change them to match your focus and any daily city bonuses. Prices come from players running the
       Albion Data Client, so check them in-game before a big session.</div>
   </footer>
 </div>
@@ -524,11 +536,15 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     sc.button = b;
     scenBar.appendChild(b);
   });
+  scenBar.hidden = data.scenarios.length < 2;
   function showScenario() {
     data.scenarios.forEach(function (sc) { sc.button.setAttribute("aria-selected", String(sc === scen)); });
     document.getElementById("blurb").textContent = scen.blurb;
     var s = scen.settings, box = document.getElementById("settings");
     box.textContent = "";
+    document.querySelector('[data-label="home"]').textContent = "Sell raw in " + s.home;
+    document.querySelector('[data-label="refine"]').textContent = "Refine in " + s.refine_city + ", sell leather";
+    document.querySelector('[data-label="craft"]').textContent = "Craft in " + s.craft_city;
     ["tax " + s.tax + "%", "refine return " + Math.round(s.refine_rrr * 1000) / 10 + "%",
      "craft return " + Math.round(s.craft_rrr * 1000) / 10 + "%",
      "with focus " + Math.round(s.craft_rrr_focus * 1000) / 10 + "%",
@@ -571,7 +587,52 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     return td;
   }
 
+  function verdict(pick) {
+    var s = scen.settings, jacket = pick.what.replace(/ \d\.\d$/, "");
+    if (pick.path === "sell") return "Sell raw in " + pick.city;
+    if (pick.path === "refine") return "Refine in " + s.refine_city + ", sell leather in " + pick.city;
+    return "Refine in " + s.refine_city + ", craft " + jacket + " in " + s.craft_city +
+      (pick.path === "craft_focus" ? " with focus" : "") + ", sell in " + pick.city;
+  }
+  function li(list, left, right) {
+    var item = el("li");
+    var a = el("span"); a.appendChild(el("b", null, left[0])); a.appendChild(document.createTextNode(" " + left[1]));
+    item.appendChild(a);
+    item.appendChild(el("span", null, right));
+    list.appendChild(item);
+  }
+  function renderRuns(plans) {
+    var s = scen.settings, box = document.getElementById("runs");
+    box.textContent = "";
+    var picks = plans.filter(function (p) { return p.pick; });
+    var legs = [
+      { step: "At " + s.home, title: "Sell raw hides", rows: picks.filter(function (p) { return p.pick.path === "sell"; })
+          .map(function (p) { return [[p.tier + "." + p.ench, "hides"], nf.format(p.pick.per_hide) + "/hide"]; }) },
+      { step: s.home + " → " + s.refine_city, title: "Haul hides, refine", rows: picks.filter(function (p) { return p.pick.path !== "sell"; })
+          .map(function (p) { return [[p.tier + "." + p.ench, "hides"], p.pick.path === "refine" ? "sell leather" : "keep leather"]; }) },
+      { step: "Leather sales", title: "Sell the leather", rows: picks.filter(function (p) { return p.pick.path === "refine"; })
+          .map(function (p) { return [[p.tier + "." + p.ench, "leather → " + p.pick.city], nf.format(p.pick.per_hide) + "/hide"]; }) },
+      { step: s.refine_city + " → " + s.craft_city, title: "Craft jackets", rows: picks.filter(function (p) { return p.pick.path.indexOf("craft") === 0; })
+          .map(function (p) { return [[p.tier + "." + p.ench, p.pick.what.replace(/ \d\.\d$/, "") + (p.pick.path === "craft_focus" ? " (focus)" : "")],
+                                      nf.format(p.pick.per_hide) + "/hide"]; }) },
+      { step: "Jacket sales", title: "Sell the jackets", rows: picks.filter(function (p) { return p.pick.path.indexOf("craft") === 0; })
+          .map(function (p) { return [[p.tier + "." + p.ench, p.pick.city === "Black Market" ? "Black Market (haul to Caerleon)" : p.pick.city],
+                                      p.pick.how === "instant" ? "instant" : p.pick.how === "avg" ? "7-day avg" : "list"]; }) }
+    ];
+    legs.forEach(function (leg) {
+      var c = el("div", "run");
+      c.appendChild(el("div", "step", leg.step));
+      c.appendChild(el("h3", null, leg.title));
+      if (leg.rows.length) {
+        var ul = el("ul");
+        leg.rows.forEach(function (r) { li(ul, r[0], r[1]); });
+        c.appendChild(ul);
+      } else c.appendChild(el("div", "none", "Nothing this time."));
+      box.appendChild(c);
+    });
+  }
   function render() {
+    renderRuns(scen.plans.filter(function (p) { return state.tier === "all" || p.tier === state.tier; }));
     var body = document.getElementById("hideRows");
     body.textContent = "";
     scen.plans.filter(function (p) { return state.tier === "all" || p.tier === state.tier; })
@@ -589,8 +650,7 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
         if (pick) {
           var span = el("span", "verdict");
           span.appendChild(el("span", "dot " + pick.path));
-          span.appendChild(document.createTextNode(PATH[pick.path] + (pick.path.indexOf("craft") === 0
-            ? ": " + pick.what.replace(/ \d\.\d$/, "") : "") + " → " + pick.city));
+          span.appendChild(document.createTextNode(verdict(pick)));
           v.appendChild(span);
           if (p.raw && pick.path !== "sell") {
             var up = (pick.per_hide / p.raw - 1) * 100;

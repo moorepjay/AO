@@ -81,33 +81,36 @@ If nothing passes the filters, the data is probably thin for your tiers: try
 
 ## Craft planner (leather)
 
-`albion_craft_planner.py` is for gatherers who refine and craft their own hides. For every
-tier and enchant of hide (4.0 to 8.3) it works out what one gathered hide is worth if you:
+`albion_craft_planner.py` is for gatherers who run the loop
+**gather and bank (Caerleon) → refine (Martlock, hide bonus) → craft jackets (Thetford, leather
+armor bonus) → sell**. For every tier and enchant of hide (4.0 to 8.3) it works out what one
+gathered hide is worth if you:
 
-- sell it raw,
-- refine it into leather and sell the leather, or
-- refine it and craft a Mercenary, Hunter or Assassin jacket, with and without focus.
+- sell it raw where it's banked,
+- take it to Martlock, refine it and sell the leather, or
+- refine it in Martlock and craft a Mercenary, Hunter or Assassin jacket in Thetford, with and
+  without focus, then sell the jacket.
 
-It shows two session plans side by side: **Stay in Caerleon** (refine, craft and sell where your
-stock already is, instant sales only, nothing hauled) and **Best city anywhere** (refine in
-Martlock, sell wherever pays most). For each it recommends the best option and where to sell it (crafting with focus only when it pays at
-least 10% more, since focus is limited). It also lists a jacket craft queue ranked by how much
-more each jacket earns than selling its leather, with daily sales so you don't flood a market.
+It recommends the best option and where to sell it (crafting with focus only when it pays at least
+10% more, since focus is limited), and turns that into a run sheet: which hides to sell at home,
+which to haul to Martlock, which leather to sell and where, which jackets to craft in Thetford, and
+where the jackets sell (including hauling back to the Black Market). It also lists a jacket craft
+queue ranked by how much more each jacket earns than selling its leather, with daily sales so you
+don't flood a market.
 
 ```bash
-python albion_craft_planner.py                         # T4-T8, enchants 0-3, both plans
-python albion_craft_planner.py --scenario caerleon     # just the stay-in-Caerleon plan
+python albion_craft_planner.py                         # T4-T8, enchants 0-3
 python albion_craft_planner.py --tiers 5,6 --premium
+python albion_craft_planner.py --home Lymhurst         # hides banked somewhere else
 python albion_craft_planner.py --html plan.html        # also write a results page
 ```
 
-Hides are valued at what you could sell them for; the lower-tier leather each refine needs is
-priced at the cheapest sell order. Sell orders are valued at the lower of the current listing and
-the 7-day average sale price, and only where the item has actually been selling. Return rates are
-settings (`--refine-rrr`, `--craft-rrr`, `--craft-rrr-focus`); the defaults are refining in
-Martlock without focus (36.7%), crafting without a city bonus (15.2%) and with focus (43.5%).
-Refining in Caerleon defaults to 15.2% (`--home-refine-rrr`). Where a market is trading but has no
-current price snapshot (common in Caerleon), the 7-day average sale price is used and labelled.
+Hides are valued at what you could sell them for where they're banked; the lower-tier leather each
+refine needs is priced at the cheapest sell order. Sell orders are valued at the lower of the
+current listing and the 7-day average sale price, and only where the item has actually been
+selling. Where a market is trading but has no current price snapshot (common in Caerleon), the
+7-day average sale price is used and labelled. Return rates are settings: `--refine-rrr` (Martlock,
+default 36.7% without focus), `--craft-rrr` and `--craft-rrr-focus` (Thetford, 24.8% and 47.9%).
 Station fees and above-Normal item quality aren't counted.
 
 ## Fees

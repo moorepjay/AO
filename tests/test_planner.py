@@ -92,9 +92,9 @@ class OutputTests(unittest.TestCase):
         prices = {("T5_HIDE", "Martlock"): row(buy=100),
                   ("T5_HIDE", "Caerleon"): row(buy=60),
                   ("T4_LEATHER", "Caerleon"): row(sell=200)}
-        c = cfg(markets=["Caerleon"], gear_markets=["Caerleon", "Black Market"])
-        plan = acp.plan_tier(5, 0, prices, {}, c, NOW)
-        self.assertEqual((plan["raw"], plan["paths"][0]["city"]), (60, "Caerleon"))
+        # Raw hides only sell where they're banked; leather can sell anywhere
+        plan = acp.plan_tier(5, 0, prices, {}, cfg(raw_markets=["Caerleon"]), NOW)
+        self.assertEqual(plan["raw"], 60)
 
 
 if __name__ == "__main__":
