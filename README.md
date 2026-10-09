@@ -79,6 +79,32 @@ The results print as a table and are also saved to `flips.csv` (change this with
 If nothing passes the filters, the data is probably thin for your tiers: try
 `--max-age 24 --min-profit 1000`, or add more tiers.
 
+## Craft planner (leather)
+
+`albion_craft_planner.py` is for gatherers who refine and craft their own hides. For every
+tier and enchant of hide (4.0 to 8.3) it works out what one gathered hide is worth if you:
+
+- sell it raw,
+- refine it into leather and sell the leather, or
+- refine it and craft a Mercenary, Hunter or Assassin jacket, with and without focus.
+
+It recommends the best option and where to sell it (crafting with focus only when it pays at
+least 10% more, since focus is limited). It also lists a jacket craft queue ranked by how much
+more each jacket earns than selling its leather, with daily sales so you don't flood a market.
+
+```bash
+python albion_craft_planner.py                         # T4-T8, enchants 0-3
+python albion_craft_planner.py --tiers 5,6 --premium
+python albion_craft_planner.py --html plan.html        # also write a results page
+```
+
+Hides are valued at what you could sell them for; the lower-tier leather each refine needs is
+priced at the cheapest sell order. Sell orders are valued at the lower of the current listing and
+the 7-day average sale price, and only where the item has actually been selling. Return rates are
+settings (`--refine-rrr`, `--craft-rrr`, `--craft-rrr-focus`); the defaults are refining in
+Martlock without focus (36.7%), crafting without a city bonus (15.2%) and with focus (43.5%).
+Station fees and above-Normal item quality aren't counted.
+
 ## Fees
 
 The tax and setup fee are constants at the top of `albion_flip_scanner.py`

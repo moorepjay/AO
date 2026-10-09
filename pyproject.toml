@@ -12,6 +12,7 @@ dependencies = []
 
 [project.scripts]
 albion-flip-scanner = "albion_flip_scanner:main"
+albion-craft-planner = "albion_craft_planner:main"
 
 [tool.setuptools]
-py-modules = ["albion_flip_scanner"]
+py-modules = ["albion_flip_scanner", "albion_craft_planner"]
