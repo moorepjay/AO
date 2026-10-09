@@ -161,9 +161,12 @@ def plan_tier(t, e, prices, history, cfg, now):
 
     raw = best_sale(hide_id(t, e), cfg.get("raw_markets", markets), prices,
                     history, cfg, now)
-    prev = cheapest_buy(leather_id(t - 1, 0), markets, prices, cfg, now, history) if t > 2 else (0, "", 0)
-    leather_sale = best_sale(leather_id(t, e), markets, prices, history, cfg, now)
-    leather_buy = cheapest_buy(leather_id(t, e), markets, prices, cfg, now, history)
+    # Leather only exists where you refine it, so it's bought and sold there
+    leather_markets = cfg.get("leather_markets", markets)
+    prev = (cheapest_buy(leather_id(t - 1, 0), leather_markets, prices, cfg, now, history)
+            if t > 2 else (0, "", 0))
+    leather_sale = best_sale(leather_id(t, e), leather_markets, prices, history, cfg, now)
+    leather_buy = cheapest_buy(leather_id(t, e), leather_markets, prices, cfg, now, history)
 
     hides_per_leather = (1 - r) * n
     prev_per_leather = (1 - r) if t > 2 else 0
@@ -311,12 +314,16 @@ def scenarios_for(args, base):
     """
     Session plans to compare. One for now: the gather -> Martlock -> Thetford
     chain. Hides sell raw only where they're banked (anything else means
-    hauling them anyway); leather and jackets sell wherever pays most.
+    hauling them anyway); leather is made in the royal cities and is bought and
+    sold there, never carried back to Caerleon; jackets sell wherever pays
+    most, including the Black Market.
     """
     return [("chain", "Gather, refine, craft",
              f"Hides banked in {args.home}, refined in {REFINE_CITY}, jackets "
-             f"crafted in {CRAFT_CITY}, everything sold wherever pays most.",
-             dict(base, refine_rrr=args.refine_rrr, raw_markets=[args.home]))]
+             f"crafted in {CRAFT_CITY}. Leather is bought and sold in royal cities; "
+             "jackets sell wherever pays most.",
+             dict(base, refine_rrr=args.refine_rrr, raw_markets=[args.home],
+                  leather_markets=afs.ROYAL))]
 
 
 def main(argv=None):

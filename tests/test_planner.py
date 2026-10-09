@@ -96,6 +96,16 @@ class OutputTests(unittest.TestCase):
         plan = acp.plan_tier(5, 0, prices, {}, cfg(raw_markets=["Caerleon"]), NOW)
         self.assertEqual(plan["raw"], 60)
 
+    def test_leather_stays_royal(self):
+        prices = {("T5_HIDE", "Caerleon"): row(buy=100),
+                  ("T4_LEATHER", "Martlock"): row(sell=200),
+                  ("T5_LEATHER", "Martlock"): row(buy=500),
+                  ("T5_LEATHER", "Caerleon"): row(buy=900)}
+        plan = acp.plan_tier(5, 0, prices, {}, cfg(raw_markets=["Caerleon"],
+                             leather_markets=["Martlock"]), NOW)
+        refine = [x for x in plan["paths"] if x["path"] == "refine"][0]
+        self.assertEqual((refine["city"], refine["per_hide"]), ("Martlock", (500 - 200) / 3))
+
 
 if __name__ == "__main__":
     unittest.main()

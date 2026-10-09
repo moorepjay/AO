@@ -105,7 +105,8 @@ python albion_craft_planner.py --home Lymhurst         # hides banked somewhere 
 python albion_craft_planner.py --html plan.html        # also write a results page
 ```
 
-Hides are valued at what you could sell them for where they're banked; the lower-tier leather each
+Hides are valued at what you could sell them for where they're banked. Leather is only bought and
+sold in royal cities (it's made in Martlock and never carried back to Caerleon); the lower-tier leather each
 refine needs is priced at the cheapest sell order. Sell orders are valued at the lower of the
 current listing and the 7-day average sale price, and only where the item has actually been
 selling. Where a market is trading but has no current price snapshot (common in Caerleon), the
