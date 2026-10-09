@@ -88,12 +88,15 @@ tier and enchant of hide (4.0 to 8.3) it works out what one gathered hide is wor
 - refine it into leather and sell the leather, or
 - refine it and craft a Mercenary, Hunter or Assassin jacket, with and without focus.
 
-It recommends the best option and where to sell it (crafting with focus only when it pays at
+It shows two session plans side by side: **Stay in Caerleon** (refine, craft and sell where your
+stock already is, instant sales only, nothing hauled) and **Best city anywhere** (refine in
+Martlock, sell wherever pays most). For each it recommends the best option and where to sell it (crafting with focus only when it pays at
 least 10% more, since focus is limited). It also lists a jacket craft queue ranked by how much
 more each jacket earns than selling its leather, with daily sales so you don't flood a market.
 
 ```bash
-python albion_craft_planner.py                         # T4-T8, enchants 0-3
+python albion_craft_planner.py                         # T4-T8, enchants 0-3, both plans
+python albion_craft_planner.py --scenario caerleon     # just the stay-in-Caerleon plan
 python albion_craft_planner.py --tiers 5,6 --premium
 python albion_craft_planner.py --html plan.html        # also write a results page
 ```
@@ -103,6 +106,8 @@ priced at the cheapest sell order. Sell orders are valued at the lower of the cu
 the 7-day average sale price, and only where the item has actually been selling. Return rates are
 settings (`--refine-rrr`, `--craft-rrr`, `--craft-rrr-focus`); the defaults are refining in
 Martlock without focus (36.7%), crafting without a city bonus (15.2%) and with focus (43.5%).
+Refining in Caerleon defaults to 15.2% (`--home-refine-rrr`). Where a market is trading but has no
+current price snapshot (common in Caerleon), the 7-day average sale price is used and labelled.
 Station fees and above-Normal item quality aren't counted.
 
 ## Fees

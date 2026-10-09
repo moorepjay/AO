@@ -37,6 +37,7 @@ JACKETS = {"SET1": "Mercenary Jacket", "SET2": "Hunter Jacket",
 # Resource return rates. Defaults: refining in Martlock (hide bonus city) and
 # crafting outside a bonus city, both without focus. VERIFY for your setup.
 REFINE_RRR = 0.367
+REFINE_RRR_NO_BONUS = 0.152
 CRAFT_RRR = 0.152
 CRAFT_RRR_FOCUS = 0.435
 FOCUS_EDGE = 0.10  # recommend focus only when it pays at least 10% more
@@ -113,21 +114,33 @@ def best_sale(item, cities, prices, history, cfg, now):
                 price = min(lst[0], hist[1])
                 opts.append((price * (1 - cfg["tax"] - afs.SETUP_FEE),
                              "listed", lst[1]))
+        if not opts and hist:
+            # No current snapshot (nobody with the data client opened this
+            # market lately), but it is trading: use the 7-day average.
+            opts.append((hist[1] * (1 - cfg["tax"]), "avg", None))
         for net, how, age in opts:
             if best is None or net > best[0]:
                 best = (net, city, how, age, vol)
     return best
 
 
-def cheapest_buy(item, cities, prices, cfg, now):
-    """Lowest sell order for `item`, as (price, city, age)."""
+def cheapest_buy(item, cities, prices, cfg, now, history=None):
+    """Lowest sell order for `item`, as (price, city, age); falls back to the
+    7-day average sale price (age None) where there's no current listing."""
     best = None
     for city in cities:
         v = afs.fresh_value(prices.get((item, city)), "sell_price_min",
                             "sell_price_min_date", now, cfg["max_age"])
+        if not v and history and (item, city) in history:
+            v = (history[(item, city)][1], None)
         if v and (best is None or v[0] < best[0]):
             best = (v[0], city, v[1])
     return best
+
+
+def _oldest(*ages):
+    known = [a for a in ages if a is not None]
+    return max(known) if known else None
 
 
 # --------------------------------------------------------------------------
@@ -136,14 +149,14 @@ def cheapest_buy(item, cities, prices, cfg, now):
 def plan_tier(t, e, prices, history, cfg, now):
     """Per-hide value of each path for hides of tier t, enchant e."""
     r, rc = cfg["refine_rrr"], cfg["craft_rrr"]
-    markets = afs.ROYAL + [afs.CAERLEON]
-    gear_markets = markets + [afs.BLACK_MARKET]
+    markets = cfg.get("markets", afs.ROYAL + [afs.CAERLEON])
+    gear_markets = cfg.get("gear_markets", markets + [afs.BLACK_MARKET])
     n = HIDES_PER_LEATHER[t]
 
     raw = best_sale(hide_id(t, e), markets, prices, history, cfg, now)
-    prev = cheapest_buy(leather_id(t - 1, 0), markets, prices, cfg, now) if t > 2 else (0, "", 0)
+    prev = cheapest_buy(leather_id(t - 1, 0), markets, prices, cfg, now, history) if t > 2 else (0, "", 0)
     leather_sale = best_sale(leather_id(t, e), markets, prices, history, cfg, now)
-    leather_buy = cheapest_buy(leather_id(t, e), markets, prices, cfg, now)
+    leather_buy = cheapest_buy(leather_id(t, e), markets, prices, cfg, now, history)
 
     hides_per_leather = (1 - r) * n
     prev_per_leather = (1 - r) if t > 2 else 0
@@ -157,7 +170,7 @@ def plan_tier(t, e, prices, history, cfg, now):
         per = (leather_sale[0] - prev_per_leather * prev[0]) / hides_per_leather
         paths.append({"path": "refine", "what": label(t, e, "Leather"),
                       "per_hide": per, "city": leather_sale[1],
-                      "how": leather_sale[2], "age": max(leather_sale[3], prev[2]),
+                      "how": leather_sale[2], "age": _oldest(leather_sale[3], prev[2]),
                       "volume": leather_sale[4]})
 
     jackets = []
@@ -184,7 +197,7 @@ def plan_tier(t, e, prices, history, cfg, now):
                 j["per_hide" + key] = per
                 paths.append({"path": path, "what": j["name"], "per_hide": per,
                               "city": sale[1], "how": sale[2],
-                              "age": max(sale[3], prev[2]), "volume": sale[4]})
+                              "age": _oldest(sale[3], prev[2]), "volume": sale[4]})
         jackets.append(j)
 
     paths.sort(key=lambda p: p["per_hide"], reverse=True)
@@ -227,7 +240,7 @@ def fmt(n):
 
 
 def print_plan(plans):
-    print("What to do with your hides (silver per hide)\n")
+    print("What to do with your hides (silver per hide)")
     hdr = ("Hide", "Sell raw", "Refine+sell", "Best jacket", "Jacket/hide",
            "w/ focus", "Do this", "Where")
     rows = []
@@ -243,7 +256,7 @@ def print_plan(plans):
             fmt(by["craft"]["per_hide"]) if "craft" in by else "-",
             fmt(by["craft_focus"]["per_hide"]) if "craft_focus" in by else "-",
             PATH_LABELS[best["path"]] if best else "no data",
-            f"{best['city']} ({best['how']})" if best else "",
+            f"{best['city']} ({'7-day avg' if best['how'] == 'avg' else best['how']})" if best else "",
         ))
     widths = [max(len(str(x)) for x in col) for col in zip(hdr, *rows)]
     print("  ".join(h.ljust(w) for h, w in zip(hdr, widths)))
@@ -252,8 +265,8 @@ def print_plan(plans):
         print("  ".join(str(x).ljust(w) for x, w in zip(r, widths)))
 
 
-def write_html(path, plans, meta):
-    data = dict(meta, plans=plans)
+def write_html(path, scenarios, meta):
+    data = dict(meta, scenarios=scenarios)
     blob = json.dumps(data).replace("</", "<\\/")
     with open(path, "w", encoding="utf-8") as f:
         f.write(HTML_TEMPLATE.replace("__PLAN_JSON__", blob))
@@ -269,8 +282,12 @@ def build_parser():
     p.add_argument("--enchants", default="0,1,2,3")
     p.add_argument("--premium", action="store_true",
                    help="use premium tax rate (4%% instead of 8%%)")
+    p.add_argument("--scenario", choices=["both", "caerleon", "anywhere"],
+                   default="both", help="which session plans to show")
     p.add_argument("--refine-rrr", type=float, default=REFINE_RRR,
-                   help="refining resource return rate (default: Martlock, no focus)")
+                   help="refining return rate in Martlock (default: no focus)")
+    p.add_argument("--home-refine-rrr", type=float, default=REFINE_RRR_NO_BONUS,
+                   help="refining return rate in Caerleon (default: no focus)")
     p.add_argument("--craft-rrr", type=float, default=CRAFT_RRR,
                    help="crafting resource return rate (default: no bonus, no focus)")
     p.add_argument("--craft-rrr-focus", type=float, default=CRAFT_RRR_FOCUS,
@@ -285,45 +302,72 @@ def build_parser():
     return p
 
 
+def scenarios_for(args, base):
+    """
+    The ways to play a session that the plan compares:
+      caerleon: refine, craft and sell where your stock already is (Caerleon
+                market and Black Market), instant sales only, so silver comes
+                in now and nothing is hauled.
+      anywhere: best city for every step, including listing sell orders.
+    """
+    out = []
+    if args.scenario in ("both", "caerleon"):
+        out.append(("caerleon", "Stay in Caerleon",
+                    "Refine, craft and sell where your stock is. Instant sales to "
+                    "buy orders only, so silver lands now and nothing gets hauled.",
+                    dict(base, markets=[afs.CAERLEON],
+                         gear_markets=[afs.CAERLEON, afs.BLACK_MARKET],
+                         sell_mode="instant", refine_rrr=args.home_refine_rrr)))
+    if args.scenario in ("both", "anywhere"):
+        out.append(("anywhere", "Best city anywhere",
+                    "Refine in Martlock and sell wherever pays most, listing sell "
+                    "orders where they beat buy orders. More silver, more hauling.",
+                    dict(base, refine_rrr=args.refine_rrr)))
+    return out
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     host = afs.HOSTS[args.server]
     now = datetime.now(timezone.utc)
     tiers = [int(t) for t in args.tiers.split(",")]
     enchants = [int(e) for e in args.enchants.split(",")]
-    cfg = {"tax": afs.TAX_PREMIUM if args.premium else afs.TAX_NO_PREMIUM,
-           "max_age": args.max_age, "sell_mode": args.sell_mode,
-           "refine_rrr": args.refine_rrr, "craft_rrr": args.craft_rrr,
-           "craft_rrr_focus": args.craft_rrr_focus}
+    base = {"tax": afs.TAX_PREMIUM if args.premium else afs.TAX_NO_PREMIUM,
+            "max_age": args.max_age, "sell_mode": args.sell_mode,
+            "craft_rrr": args.craft_rrr, "craft_rrr_focus": args.craft_rrr_focus}
 
     items = collect_items(tiers, enchants)
     locations = afs.ROYAL + [afs.CAERLEON, afs.BLACK_MARKET]
     print(f"Pricing {len(items)} items on {args.server}...", file=sys.stderr)
     prices = afs.fetch_prices(host, items, locations, 1)
-
     print("Checking sales history...", file=sys.stderr)
     history = fetch_history(host, items, locations)
-    plans = [plan_tier(t, e, prices, history, cfg, now)
-             for t in tiers for e in enchants]
-    for p in plans:
-        for j in p["jackets"]:
-            v = j["volume"]
-            j["suggest"] = int(v * args.vol_share) if v is not None else None
 
-    print()
-    print_plan(plans)
+    scenarios = []
+    for key, title, blurb, cfg in scenarios_for(args, base):
+        plans = [plan_tier(t, e, prices, history, cfg, now)
+                 for t in tiers for e in enchants]
+        for p in plans:
+            for j in p["jackets"]:
+                v = j["volume"]
+                j["suggest"] = int(v * args.vol_share) if v is not None else None
+        print(f"\n== {title} ==")
+        print_plan(plans)
+        scenarios.append({
+            "key": key, "title": title, "blurb": blurb, "plans": plans,
+            "settings": {"tax": round(cfg["tax"] * 100, 1),
+                         "refine_rrr": cfg["refine_rrr"],
+                         "craft_rrr": cfg["craft_rrr"],
+                         "craft_rrr_focus": cfg["craft_rrr_focus"],
+                         "sell_mode": cfg["sell_mode"],
+                         "max_age": args.max_age, "vol_share": args.vol_share},
+        })
+
     if args.html:
-        meta = {"generated": now.isoformat(), "server": args.server,
-                "settings": {"tax": round(cfg["tax"] * 100, 1),
-                             "refine_rrr": args.refine_rrr,
-                             "craft_rrr": args.craft_rrr,
-                             "craft_rrr_focus": args.craft_rrr_focus,
-                             "sell_mode": args.sell_mode,
-                             "max_age": args.max_age,
-                             "vol_share": args.vol_share}}
-        write_html(args.html, plans, meta)
+        write_html(args.html, scenarios,
+                   {"generated": now.isoformat(), "server": args.server})
         print(f"\nWrote plan page to {args.html}")
-    return plans
+    return scenarios
 
 
 HTML_TEMPLATE = r"""<title>Leather Session Plan</title>
@@ -361,6 +405,12 @@ h2 { font-family: var(--display); font-size: 18px; margin: 8px 0 0; }
 .settings { display: flex; flex-wrap: wrap; gap: 6px; }
 .settings span { font-family: var(--mono); font-size: 11.5px; padding: 3px 8px; border: 1px solid var(--line);
   border-radius: 4px; color: var(--muted); background: var(--panel); }
+.scen { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); padding: 4px; width: fit-content; max-width: 100%; }
+.scen button { font: inherit; font-weight: 600; font-size: 14px; padding: 8px 16px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer; }
+.scen button[aria-selected="true"] { background: var(--accent-soft); color: var(--fg); }
+.scen button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .filters .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-right: 4px; }
 .chip { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
@@ -381,6 +431,7 @@ td.opt { color: var(--muted); }
 td.opt.win { color: var(--fg); font-weight: 600; background: var(--good-bg); }
 td.opt .where { display: block; font-family: var(--body); font-size: 11px; color: var(--muted); font-weight: 400; }
 td.left { text-align: left; font-family: var(--body); font-size: 13.5px; }
+#hides td.left { white-space: normal; min-width: 210px; }
 .verdict { display: inline-flex; align-items: center; gap: 6px; font-family: var(--body); font-weight: 600; font-size: 13px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .sell { background: var(--sell); } .refine { background: var(--refine); } .craft { background: var(--craft); } .craft_focus { background: var(--focus); }
@@ -396,6 +447,8 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     <h1>Leather <span>Session Plan</span></h1>
     <div class="stamp" id="stamp"></div>
   </header>
+  <div class="scen" id="scen" role="tablist" aria-label="Session plan"></div>
+  <p class="lede" id="blurb"></p>
   <div class="settings" id="settings"></div>
 
   <section>
@@ -431,7 +484,8 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
 
   <footer>
     <div>Prices are what you'd actually get: sell orders are valued at the lower of the current listing and the
-      7-day average sale price, after tax and setup fee; Black Market sales go into its buy orders. Lower-tier leather
+      7-day average sale price, after tax and setup fee; Black Market sales go into its buy orders. Where a market
+      is trading but has no current price snapshot, the 7-day average sale price is used and marked "7-day avg". Lower-tier leather
       for refining is priced at the cheapest sell order. Station fees and item quality above Normal are not counted,
       so crafted jackets that roll better quality are worth a bit more than shown.</div>
     <div>Return rates are settings: change them to match your city and focus. Prices come from players running the
@@ -458,16 +512,33 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     return nf.format(n);
   }
 
-  var s = data.settings;
   document.getElementById("stamp").textContent = data.server + " · priced " +
     new Date(data.generated).toISOString().slice(0, 16).replace("T", " ") + " UTC";
-  ["tax " + s.tax + "%", "refine return " + Math.round(s.refine_rrr * 1000) / 10 + "%",
-   "craft return " + Math.round(s.craft_rrr * 1000) / 10 + "%",
-   "with focus " + Math.round(s.craft_rrr_focus * 1000) / 10 + "%",
-   "sell " + s.sell_mode, "prices ≤ " + s.max_age + "h old"]
-    .forEach(function (t) { document.getElementById("settings").appendChild(el("span", null, t)); });
+  var scen = data.scenarios[0];
+  var scenBar = document.getElementById("scen");
+  data.scenarios.forEach(function (sc) {
+    var b = el("button", null, sc.title);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.addEventListener("click", function () { scen = sc; showScenario(); });
+    sc.button = b;
+    scenBar.appendChild(b);
+  });
+  function showScenario() {
+    data.scenarios.forEach(function (sc) { sc.button.setAttribute("aria-selected", String(sc === scen)); });
+    document.getElementById("blurb").textContent = scen.blurb;
+    var s = scen.settings, box = document.getElementById("settings");
+    box.textContent = "";
+    ["tax " + s.tax + "%", "refine return " + Math.round(s.refine_rrr * 1000) / 10 + "%",
+     "craft return " + Math.round(s.craft_rrr * 1000) / 10 + "%",
+     "with focus " + Math.round(s.craft_rrr_focus * 1000) / 10 + "%",
+     s.sell_mode === "instant" ? "instant sales only" : "list or instant",
+     "prices ≤ " + s.max_age + "h old"]
+      .forEach(function (t) { box.appendChild(el("span", null, t)); });
+    render();
+  }
 
-  var tiers = Array.from(new Set(data.plans.map(function (p) { return p.tier; })));
+  var tiers = Array.from(new Set(data.scenarios[0].plans.map(function (p) { return p.tier; })));
   var state = { tier: "all" };
   var filters = document.getElementById("filters");
   filters.appendChild(el("span", "lbl", "Tier"));
@@ -494,7 +565,8 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     var td = el("td", "opt" + (isPick ? " win" : ""));
     if (!x) { td.textContent = "–"; return td; }
     td.appendChild(document.createTextNode(nf.format(x.per_hide)));
-    var where = (showWhat ? x.what.replace(/ \d\.\d$/, "") + " · " : "") + x.city;
+    var where = (showWhat ? x.what.replace(/ \d\.\d$/, "") + " · " : "") + x.city +
+      (x.how === "avg" ? " · 7-day avg" : "");
     td.appendChild(el("span", "where", where));
     return td;
   }
@@ -502,7 +574,7 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
   function render() {
     var body = document.getElementById("hideRows");
     body.textContent = "";
-    data.plans.filter(function (p) { return state.tier === "all" || p.tier === state.tier; })
+    scen.plans.filter(function (p) { return state.tier === "all" || p.tier === state.tier; })
       .forEach(function (p) {
         var tr = el("tr");
         var td = el("td", "tier", p.tier + "." + p.ench);
@@ -533,7 +605,7 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
       });
 
     var q = [];
-    data.plans.forEach(function (p) {
+    scen.plans.forEach(function (p) {
       if (state.tier !== "all" && p.tier !== state.tier) return;
       p.jackets.forEach(function (j) { q.push(j); });
     });
@@ -546,7 +618,7 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     q.forEach(function (j) {
       var tr = el("tr");
       tr.appendChild(el("td", "left", j.name));
-      tr.appendChild(el("td", "left", j.city + (j.how === "listed" ? " (list)" : "")));
+      tr.appendChild(el("td", "left", j.city + (j.how === "listed" ? " (list)" : j.how === "avg" ? " (7-day avg)" : "")));
       tr.appendChild(el("td", null, silver(j.sell)));
       tr.appendChild(el("td", null, j.leather_per_focus.toFixed(1) + " – " + j.leather_per.toFixed(1)));
       [j.gain_vs_leather, j.gain_vs_leather_focus].forEach(function (g) {
@@ -561,7 +633,7 @@ footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 80
     qe.hidden = q.length > 0;
     qe.textContent = "No jackets with recent prices for this tier.";
   }
-  render();
+  showScenario();
 })();
 </script>
 """

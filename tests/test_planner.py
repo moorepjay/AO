@@ -80,12 +80,21 @@ class OutputTests(unittest.TestCase):
         plan = acp.plan_tier(5, 0, prices, {}, cfg(), NOW)
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "p.html")
-            acp.write_html(path, [plan], {"generated": "x", "server": "americas",
-                                          "settings": {}})
+            acp.write_html(path, [{"key": "k", "title": "t", "blurb": "",
+                                   "settings": {}, "plans": [plan]}],
+                           {"generated": "x", "server": "americas"})
             with open(path, encoding="utf-8") as f:
                 page = f.read()
         blob = page.split('type="application/json">', 1)[1].split("</script>", 1)[0]
-        self.assertEqual(json.loads(blob)["plans"][0]["tier"], 5)
+        self.assertEqual(json.loads(blob)["scenarios"][0]["plans"][0]["tier"], 5)
+
+    def test_market_restriction(self):
+        prices = {("T5_HIDE", "Martlock"): row(buy=100),
+                  ("T5_HIDE", "Caerleon"): row(buy=60),
+                  ("T4_LEATHER", "Caerleon"): row(sell=200)}
+        c = cfg(markets=["Caerleon"], gear_markets=["Caerleon", "Black Market"])
+        plan = acp.plan_tier(5, 0, prices, {}, c, NOW)
+        self.assertEqual((plan["raw"], plan["paths"][0]["city"]), (60, "Caerleon"))
 
 
 if __name__ == "__main__":
