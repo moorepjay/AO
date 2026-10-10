@@ -114,6 +114,26 @@ selling. Where a market is trading but has no current price snapshot (common in 
 default 36.7% without focus), `--craft-rrr` and `--craft-rrr-focus` (Thetford, 24.8% and 47.9%).
 Station fees and above-Normal item quality aren't counted.
 
+## Buy order finder
+
+`albion_buy_orders.py` answers "where should I place a buy order for this item?"
+
+```bash
+python albion_buy_orders.py T4_BAG
+python albion_buy_orders.py T6_HIDE T6_LEATHER --premium
+python albion_buy_orders.py "Adept's Bag" --sort profit
+```
+
+For each market (royal cities, Caerleon and Brecilien) it prices a winning order one silver above the
+current top buy order (or at the 7-day average sale where no buy order is up), adds the 2.5% setup fee,
+and shows the saving against the cheapest sell order, items sold per day, and the best place to resell
+with the margin after tax. Where outbidding would reach the cheapest sell order it says to buy instantly instead.
+
+Markets are ranked by cost (`--sort profit` or `volume` to change). Markets selling fewer than
+`--min-volume` per day, and "lowball" top orders more than `--max-discount` (30%) under the 7-day
+average sale, rank last: matching an order nobody is filling won't get you items either.
+Item names work when `items.txt` is available (otherwise only built-in gear names); ids always work.
+
 ## Fees
 
 The tax and setup fee are constants at the top of `albion_flip_scanner.py`
