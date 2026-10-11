@@ -114,6 +114,30 @@ selling. Where a market is trading but has no current price snapshot (common in 
 default 36.7% without focus), `--craft-rrr` and `--craft-rrr-focus` (Thetford, 24.8% and 47.9%).
 Station fees and above-Normal item quality aren't counted.
 
+## Ledger
+
+`albion_ledger.py` prices a list of holdings and writes a ledger: value per item, location and
+character, how easily each item sells (sold per day), and the market where it sells for the most.
+
+Holdings live in CSV files under `ledger/` (one per character works well):
+
+```
+character,location,item_id,name,qty,quality,manual_price,note
+Alouris,Martlock,T5_LEATHER_LEVEL1@1,5.1 Leather,295,,,
+Alouris,Caerleon,T7_2H_QUARTERSTAFF_AVALON@2,Grailseeker 7.2,1,4,1400000,No market data
+```
+
+- `quality` (1-5) prices one quality only; leave it blank to use all qualities.
+- `manual_price` is used when the market has no reliable sales, and for things like `SILVER`.
+
+```bash
+python albion_ledger.py ledger/alouris.csv --html ledger.html
+python albion_ledger.py ledger/*.csv                 # every character
+```
+
+Each item is valued at the volume-weighted average of the last 30 days of sales across the royal
+cities, Caerleon, Brecilien and the Black Market (before tax); a market needs at least 3 sales to count.
+
 ## Fees
 
 The tax and setup fee are constants at the top of `albion_flip_scanner.py`

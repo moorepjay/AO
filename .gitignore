@@ -7,3 +7,4 @@ dist/
 venv/
 flips.csv
 *.csv
+!ledger/*.csv
