@@ -14,7 +14,7 @@ Examples
   python albion_flip_scanner.py                       # auto item list, T4-T6 gear
   python albion_flip_scanner.py --tiers 5,6 --top 30
   python albion_flip_scanner.py --items T4_BAG,T5_BAG,T6_BAG --premium
-  python albion_flip_scanner.py --mode bm --budget 38617746
+  python albion_flip_scanner.py --mode bm --budget 80000000
   python albion_flip_scanner.py --items-file my_items.txt
 
 Data is crowd-sourced by players running the Albion Data Client, so rows can be
@@ -736,7 +736,7 @@ def build_parser():
     p.add_argument("--quality", type=int, default=1, choices=[1, 2, 3, 4, 5])
     p.add_argument("--premium", action="store_true",
                    help="use premium tax rate (4%% instead of 8%%)")
-    p.add_argument("--budget", type=int, default=38_617_746,
+    p.add_argument("--budget", type=int, default=80_000_000,
                    help="total silver you're working with")
     p.add_argument("--risk-frac", type=float, default=0.25,
                    help="max share of budget on one HIGH-risk position")

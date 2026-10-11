@@ -17,7 +17,7 @@ It uses only the Python standard library (Python 3.8+), so there's nothing to in
 python albion_flip_scanner.py                        # auto item list, T4–T6 gear, Americas
 python albion_flip_scanner.py --tiers 5,6 --top 30
 python albion_flip_scanner.py --items T4_BAG,T5_BAG,T6_BAG --premium
-python albion_flip_scanner.py --mode bm --budget 38617746
+python albion_flip_scanner.py --mode bm --budget 80000000
 python albion_flip_scanner.py --items-file my_items.txt     # your own item list
 python albion_flip_scanner.py --html flips.html             # also write a results page
 python albion_flip_scanner.py --limit-items 50 --no-volume   # fast test run
@@ -62,7 +62,7 @@ The results print as a table and are also saved to `flips.csv` (change this with
 | `--limit-items` | `0` | cap the auto item count (0 = no cap) |
 | `--quality` | `1` | item quality 1–5 |
 | `--premium` | off | use the 4% premium tax rate instead of 8% |
-| `--budget` | `38617746` | total silver available |
+| `--budget` | `80000000` | total silver available |
 | `--risk-frac` | `0.25` | max share of budget on one HIGH-risk position |
 | `--med-frac` | `0.5` | max share of budget on one MED-risk position |
 | `--max-age` | `6` | ignore price rows older than this many hours |
