@@ -1,0 +1,7 @@
+date,character,action,item_id,name,qty,price,how,city,fee,note
+2026-10-09,Example,buy,QUESTITEM_TOKEN_AVALON,Avalonian Energy,90,6300,order,Martlock,,EXAMPLE: replace with real trades
+2026-10-09,Example,use,QUESTITEM_TOKEN_AVALON,Avalonian Energy,90,0,,Caerleon island,,EXAMPLE: energy into 10 stews
+2026-10-10,Example,sell,T8_MEAL_STEW_AVALON,Avalonian Beef Stew,5,84000,order,Thetford,,EXAMPLE: crafted stews
+2026-10-10,Example,buy,T4_2H_GLAIVE_CRYSTAL@4,Rift Glaive 4.4,2,895000,instant,Fort Sterling,,EXAMPLE
+2026-10-11,Example,sell,T4_2H_GLAIVE_CRYSTAL@4,Rift Glaive 4.4,1,960000,order,Lymhurst,,EXAMPLE
+2026-10-11,Example,sell,T6_ARMOR_PLATE_HELL@3,Master's Demon Armor 6.3,1,950000,order,Bridgewatch,,EXAMPLE: looted

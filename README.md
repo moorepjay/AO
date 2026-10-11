@@ -116,27 +116,25 @@ Station fees and above-Normal item quality aren't counted.
 
 ## Ledger
 
-`albion_ledger.py` prices a list of holdings and writes a ledger: value per item, location and
-character, how easily each item sells (sold per day), and the market where it sells for the most.
-
-Holdings live in CSV files under `ledger/` (one per character works well):
+`albion_ledger.py` keeps a balance sheet of your market buys and sells. It reads trades from CSV
+(`ledger/trades.csv`), applies market fees, and reports silver in and out, trading profit (what you
+sold minus what you paid for it, using average cost), income from selling things you never bought
+(gathered, looted or crafted), and what you bought and still hold, at cost and at today's price.
 
 ```
-character,location,item_id,name,qty,quality,manual_price,note
-Alouris,Martlock,T5_LEATHER_LEVEL1@1,5.1 Leather,295,,,
-Alouris,Caerleon,T7_2H_QUARTERSTAFF_AVALON@2,Grailseeker 7.2,1,4,1400000,No market data
+date,character,action,item_id,name,qty,price,how,city,fee,note
+2026-10-09,Alouris,buy,QUESTITEM_TOKEN_AVALON,Avalonian Energy,90,6300,order,Martlock,,
+2026-10-09,Alouris,use,QUESTITEM_TOKEN_AVALON,Avalonian Energy,90,0,,Caerleon island,,into 10 stews
+2026-10-10,Alouris,sell,T8_MEAL_STEW_AVALON,Avalonian Beef Stew,5,84000,order,Thetford,,
 ```
 
-- `quality` (1-5) prices one quality only; leave it blank to use all qualities.
-- `manual_price` is used when the market has no reliable sales, and for things like `SILVER`.
+- `action` is `buy`, `sell`, or `use` (consumed in crafting; its cost leaves your holdings).
+- `how` is `order` (you placed an order) or `instant`. Fees are worked out unless you fill in `fee`:
+  sales tax (4% with premium, `--no-premium` for 8%) on sells, plus 2.5% for placing an order.
 
 ```bash
-python albion_ledger.py ledger/alouris.csv --html ledger.html
-python albion_ledger.py ledger/*.csv                 # every character
+python albion_ledger.py ledger/trades.csv --html ledger.html
 ```
-
-Each item is valued at the volume-weighted average of the last 30 days of sales across the royal
-cities, Caerleon, Brecilien and the Black Market (before tax); a market needs at least 3 sales to count.
 
 ## Fees
 
